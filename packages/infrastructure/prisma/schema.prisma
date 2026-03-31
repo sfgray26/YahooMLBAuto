@@ -195,6 +195,97 @@ model WaiverResult {
 }
 
 // ============================================================================
+// Raw Ingestion Log (Step 2: Store raw payloads before normalization)
+// ============================================================================
+
+model RawIngestionLog {
+  id          String   @id @default(uuid())
+  
+  // Natural key for idempotency
+  cacheKey    String   @unique
+  
+  // Source tracking
+  source      String   // 'mlb_stats_api' | etc.
+  endpoint    String   // Full URL or path
+  
+  // Context
+  season      Int?
+  gameType    String?
+  playerId    String?
+  
+  // Raw payload (exactly as received from provider)
+  rawPayload  Json
+  recordCount Int      @default(0)
+  
+  // Timing
+  fetchedAt   DateTime @default(now())
+  
+  // Observability
+  traceId     String
+  
+  @@index([source])
+  @@index([season])
+  @@index([fetchedAt])
+  @@index([cacheKey])
+  @@map("raw_ingestion_logs")
+}
+
+// ============================================================================
+// Normalized Player Stats (Step 3: Domain tables)
+// ============================================================================
+
+model PlayerDailyStats {
+  id          String   @id @default(uuid())
+  
+  // Canonical IDs (mapped from provider IDs)
+  playerId    String
+  playerMlbamId String
+  
+  // Date (normalized)
+  statDate    DateTime
+  season      Int
+  
+  // Team context
+  teamId      String?
+  teamMlbamId String?
+  
+  // Raw counting stats (no computed fields)
+  gamesPlayed Int      @default(0)
+  atBats      Int      @default(0)
+  runs        Int      @default(0)
+  hits        Int      @default(0)
+  doubles     Int      @default(0)
+  triples     Int      @default(0)
+  homeRuns    Int      @default(0)
+  rbi         Int      @default(0)
+  stolenBases Int      @default(0)
+  caughtStealing Int   @default(0)
+  walks       Int      @default(0)
+  strikeouts  Int      @default(0)
+  
+  // Rate stats (as strings from provider, normalized later if needed)
+  battingAvg  String?
+  onBasePct   String?
+  sluggingPct String?
+  ops         String?
+  
+  // Provider metadata
+  rawDataSource String @default("mlb_stats_api")
+  rawDataId     String?
+  
+  // Audit
+  ingestedAt  DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Natural key for idempotency
+  @@unique([playerMlbamId, statDate, rawDataSource])
+  @@index([playerId])
+  @@index([statDate])
+  @@index([season])
+  @@map("player_daily_stats")
+}
+
+// ============================================================================
 // Data Source Cache
 // ============================================================================
 

@@ -9,6 +9,7 @@
     "dev": "tsx watch src/worker.ts",
     "start": "node dist/worker.js",
     "scheduler": "node dist/scheduler.js",
+    "ingest": "tsx src/ingest.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

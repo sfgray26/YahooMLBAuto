@@ -2,10 +2,11 @@
  * Data Sync Handler
  * 
  * Handles data synchronization from external sources.
- * Placeholder - would integrate with MLB Stats API, etc.
+ * Uses the ingestion orchestrator for MLB Stats API data.
  */
 
 import { prisma } from '@cbb/infrastructure';
+import { runDailyIngestion } from '../ingestion/index.js';
 
 interface DataSyncOptions {
   date?: string;
@@ -15,11 +16,12 @@ interface DataSyncOptions {
 export async function handleDataSync(
   type: 'player_data' | 'schedule' | 'weather' | 'scores',
   options: DataSyncOptions
-): Promise<{ synced: boolean; count?: number }> {
+): Promise<{ synced: boolean; count?: number; traceId?: string }> {
   
   switch (type) {
     case 'player_data':
-      return syncPlayerData(options);
+      // Use the proper ingestion pipeline
+      return syncPlayerDataWithIngestion(options);
       
     case 'schedule':
       return syncSchedule(options);
@@ -35,23 +37,50 @@ export async function handleDataSync(
   }
 }
 
-async function syncPlayerData(options: DataSyncOptions): Promise<{ synced: boolean; count: number }> {
-  // Placeholder: Would fetch from MLB Stats API
-  console.log('Syncing player data...');
+async function syncPlayerDataWithIngestion(
+  options: DataSyncOptions
+): Promise<{ synced: boolean; count: number; traceId: string }> {
+  console.log('[DATA_SYNC] Starting player data ingestion...');
   
-  // Store in cache
-  await prisma.dataSourceCache.create({
-    data: {
-      id: crypto.randomUUID(),
-      source: 'mlb_stats_api',
-      endpoint: '/players',
-      cacheKey: `players_${new Date().toISOString().split('T')[0]}`,
-      data: { players: [], synced: true },
-      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
-    },
+  // Determine season from date or use current year
+  const season = options.date 
+    ? parseInt(options.date.split('-')[0])
+    : new Date().getFullYear();
+  
+  // Run the ingestion orchestrator
+  const result = await runDailyIngestion({
+    season,
+    gameType: 'R',
+    dryRun: false,
   });
   
-  return { synced: true, count: 0 };
+  if (result.success) {
+    console.log('[DATA_SYNC] Ingestion complete', {
+      traceId: result.traceId,
+      recordsFetched: result.stats.rawRecordsFetched,
+      normalizedCreated: result.stats.normalizedCreated,
+      normalizedUpdated: result.stats.normalizedUpdated,
+      durationMs: result.stats.durationMs,
+    });
+    
+    return {
+      synced: true,
+      count: result.stats.normalizedCreated + result.stats.normalizedUpdated,
+      traceId: result.traceId,
+    };
+  } else {
+    console.error('[DATA_SYNC] Ingestion failed', {
+      traceId: result.traceId,
+      errors: result.errors,
+    });
+    
+    // Still return traceId for debugging
+    return {
+      synced: false,
+      count: 0,
+      traceId: result.traceId,
+    };
+  }
 }
 
 async function syncSchedule(options: DataSyncOptions): Promise<{ synced: boolean; count: number }> {
