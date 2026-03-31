@@ -4,7 +4,7 @@
  */
 
 import { Queue, Worker, Job } from 'bullmq';
-import { Redis } from 'ioredis';
+import Redis from 'ioredis';
 
 // Redis connection (shared across all queues)
 export const redisConnection = new Redis(process.env.REDIS_URL || 'redis://localhost:6379', {
