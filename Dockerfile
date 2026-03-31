@@ -7,6 +7,7 @@
 # Base Stage - Node setup
 # -----------------------------------------------------------------------------
 FROM node:20-alpine AS base
+RUN apk update && apk add --no-cache openssl
 RUN npm install -g pnpm@9.0.0
 
 # -----------------------------------------------------------------------------
@@ -16,7 +17,7 @@ FROM base AS builder
 WORKDIR /app
 
 # Cache bust - forces rebuild when this value changes
-ARG CACHE_BUST=3
+ARG CACHE_BUST=4
 
 # Copy all source files
 COPY . .
@@ -42,6 +43,7 @@ RUN pnpm --filter @cbb/worker build
 # Production Stage - Minimal runtime image
 # -----------------------------------------------------------------------------
 FROM node:20-alpine AS production
+RUN apk update && apk add --no-cache openssl
 RUN npm install -g pnpm@9.0.0
 
 WORKDIR /app
