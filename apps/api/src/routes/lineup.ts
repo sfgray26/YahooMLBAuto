@@ -10,7 +10,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
 
 import { prisma, addDecisionRequest } from '@cbb/infrastructure';
-import type { LineupOptimizationRequest, LineupOptimizationResult } from '@cbb/core';
+import type { LineupOptimizationRequest, LineupOptimizationResult, ScoringRules, RiskProfile } from '@cbb/core';
 
 // Validation schemas
 const LineupRequestSchema = z.object({
@@ -95,7 +95,8 @@ export async function lineupRoutes(
         version: decisionRequest.version,
         type: 'lineup_optimization',
         createdAt: now,
-        payload: decisionRequest as unknown as Record<string, unknown>,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        payload: decisionRequest as any,
         status: 'pending',
         traceId,
       },
@@ -210,15 +211,15 @@ export async function lineupRoutes(
 // Helpers
 // ============================================================================
 
-function getDefaultScoringRules(format: string) {
+function getDefaultScoringRules(format: string): ScoringRules {
   // Standard 5x5 roto or points league defaults
-  const batting = format === 'points' 
-    ? { R: 1, HR: 4, RBI: 1, SB: 2, BB: 1, H: 1, '2B': 2, '3B': 3 }
-    : { AVG: 1, HR: 1, RBI: 1, R: 1, SB: 1 };
-    
-  const pitching = format === 'points'
-    ? { IP: 3, SO: 1, W: 5, SV: 5, ER: -1, H: -0.5, BB: -0.5 }
-    : { ERA: 1, WHIP: 1, K: 1, W: 1, SV: 1 };
+  const batting: Record<string, number> = format === 'points'
+    ? { R: 1, HR: 4, RBI: 1, SB: 2, BB: 1, H: 1, '2B': 2, '3B': 3, AVG: 0 }
+    : { AVG: 1, HR: 1, RBI: 1, R: 1, SB: 1, BB: 0, H: 0, '2B': 0, '3B': 0 };
+
+  const pitching: Record<string, number> = format === 'points'
+    ? { IP: 3, SO: 1, W: 5, SV: 5, ER: -1, H: -0.5, BB: -0.5, ERA: 0, WHIP: 0, K: 0 }
+    : { ERA: 1, WHIP: 1, K: 1, W: 1, SV: 1, IP: 0, SO: 0, ER: 0, H: 0, BB: 0 };
 
   return { batting, pitching };
 }
@@ -239,13 +240,13 @@ function getDefaultRosterPositions() {
   ];
 }
 
-function getRiskProfile(tolerance: string) {
+function getRiskProfile(tolerance: string): RiskProfile {
   switch (tolerance) {
     case 'conservative':
-      return { type: 'conservative' as const, varianceTolerance: 0.1, description: 'Minimize downside' };
+      return { type: 'conservative', varianceTolerance: 0.1 as const, description: 'Minimize downside' };
     case 'aggressive':
-      return { type: 'aggressive' as const, varianceTolerance: 0.5, description: 'Maximize upside potential' };
+      return { type: 'aggressive', varianceTolerance: 0.5 as const, description: 'Maximize upside potential' };
     default:
-      return { type: 'balanced' as const, varianceTolerance: 0.3, description: 'Balance risk and reward' };
+      return { type: 'balanced', varianceTolerance: 0.3 as const, description: 'Balance risk and reward' };
   }
 }

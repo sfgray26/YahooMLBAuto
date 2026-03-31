@@ -10,7 +10,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
 
 import { prisma, addDecisionRequest } from '@cbb/infrastructure';
-import type { WaiverRecommendationRequest, WaiverRecommendationResult } from '@cbb/core';
+import type { WaiverRecommendationRequest, WaiverRecommendationResult, ScoringRules } from '@cbb/core';
 
 const WaiverRequestSchema = z.object({
   leagueId: z.string(),
@@ -68,7 +68,8 @@ export async function waiverRoutes(
         version: decisionRequest.version,
         type: 'waiver_recommendation',
         createdAt: now,
-        payload: decisionRequest as unknown as Record<string, unknown>,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        payload: decisionRequest as any,
         status: 'pending',
         traceId,
       },
@@ -173,14 +174,14 @@ export async function waiverRoutes(
   });
 }
 
-function getDefaultScoringRules(format: string) {
-  const batting = format === 'points' 
-    ? { R: 1, HR: 4, RBI: 1, SB: 2, BB: 1, H: 1, '2B': 2, '3B': 3 }
-    : { AVG: 1, HR: 1, RBI: 1, R: 1, SB: 1 };
-    
-  const pitching = format === 'points'
-    ? { IP: 3, SO: 1, W: 5, SV: 5, ER: -1, H: -0.5, BB: -0.5 }
-    : { ERA: 1, WHIP: 1, K: 1, W: 1, SV: 1 };
+function getDefaultScoringRules(format: string): ScoringRules {
+  const batting: Record<string, number> = format === 'points'
+    ? { R: 1, HR: 4, RBI: 1, SB: 2, BB: 1, H: 1, '2B': 2, '3B': 3, AVG: 0 }
+    : { AVG: 1, HR: 1, RBI: 1, R: 1, SB: 1, BB: 0, H: 0, '2B': 0, '3B': 0 };
+
+  const pitching: Record<string, number> = format === 'points'
+    ? { IP: 3, SO: 1, W: 5, SV: 5, ER: -1, H: -0.5, BB: -0.5, ERA: 0, WHIP: 0, K: 0 }
+    : { ERA: 1, WHIP: 1, K: 1, W: 1, SV: 1, IP: 0, SO: 0, ER: 0, H: 0, BB: 0 };
 
   return { batting, pitching };
 }

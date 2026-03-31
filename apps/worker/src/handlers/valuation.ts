@@ -52,8 +52,10 @@ export async function handleValuation(
         modelType: valuation.methodology.modelType,
         modelVersion: valuation.methodology.modelVersion,
         featuresUsed: valuation.methodology.featuresUsed,
-        factors: valuation.factors as unknown as Record<string, unknown>[],
-        dataSources: valuation.dataSources as unknown as Record<string, unknown>[],
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        factors: valuation.factors as any,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        dataSources: valuation.dataSources as any,
         traceId,
       },
     });

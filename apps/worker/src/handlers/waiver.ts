@@ -58,8 +58,10 @@ export async function handleWaiverRecommendation(
     data: {
       id: uuidv4(),
       requestId: request.id,
-      recommendations: recommendations as unknown as Record<string, unknown>[],
-      rosterAnalysis: result.rosterAnalysis as Record<string, unknown>,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      recommendations: recommendations as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      rosterAnalysis: result.rosterAnalysis as any,
       traceId,
     },
   });

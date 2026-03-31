@@ -50,7 +50,7 @@ server.get('/health', async () => {
       }
     };
   } catch (error) {
-    server.log.error('Health check failed:', error);
+    server.log.error('Health check failed: %s', error instanceof Error ? error.message : String(error));
     return { 
       status: 'error', 
       timestamp: new Date().toISOString(),

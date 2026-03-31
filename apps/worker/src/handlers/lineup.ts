@@ -63,9 +63,12 @@ export async function handleLineupOptimization(
       scoringPeriodEnd: new Date(request.scoringPeriod.endDate),
       expectedPoints: result.expectedPoints,
       confidenceScore: result.confidenceScore,
-      optimalLineup: result.optimalLineup as unknown as Record<string, unknown>[],
-      alternativeLineups: result.alternativeLineups as unknown as Record<string, unknown>[],
-      explanation: result.explanation as Record<string, unknown>,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      optimalLineup: result.optimalLineup as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      alternativeLineups: result.alternativeLineups as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      explanation: result.explanation as any,
       traceId,
     },
   });

@@ -14,7 +14,14 @@
     "allowSyntheticDefaultImports": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@cbb/core": ["../../packages/core/dist/index.d.ts"],
+      "@cbb/core/*": ["../../packages/core/dist/*.d.ts"],
+      "@cbb/infrastructure": ["../../packages/infrastructure/dist/index.d.ts"],
+      "@cbb/infrastructure/*": ["../../packages/infrastructure/dist/*.d.ts"]
+    }
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]
