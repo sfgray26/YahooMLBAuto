@@ -11,6 +11,7 @@
     "scheduler": "node dist/scheduler.js",
     "ingest": "tsx src/ingest.ts",
     "derive": "tsx src/derive.ts",
+    "score": "tsx src/score.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

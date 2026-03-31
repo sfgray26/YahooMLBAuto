@@ -15,6 +15,7 @@ import { prisma, closeQueues } from '@cbb/infrastructure';
 import { lineupRoutes } from './routes/lineup.js';
 import { waiverRoutes } from './routes/waiver.js';
 import { playerRoutes } from './routes/player.js';
+import { playerScoreRoutes } from './routes/playerScore.js';
 import { decisionRoutes } from './routes/decisions.js';
 
 const server = Fastify({
@@ -68,6 +69,7 @@ server.get('/health', async () => {
 await server.register(lineupRoutes, { prefix: '/lineup' });
 await server.register(waiverRoutes, { prefix: '/waiver' });
 await server.register(playerRoutes, { prefix: '/players' });
+await server.register(playerScoreRoutes, { prefix: '/players' });
 await server.register(decisionRoutes, { prefix: '/decisions' });
 
 // ============================================================================
