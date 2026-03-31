@@ -10,40 +10,19 @@ FROM node:20-alpine AS base
 RUN npm install -g pnpm@9.0.0
 
 # -----------------------------------------------------------------------------
-# Dependencies Stage - Install all dependencies
-# -----------------------------------------------------------------------------
-FROM base AS deps
-WORKDIR /app
-
-# Copy package files
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
-COPY packages/core/package.json ./packages/core/
-COPY packages/infrastructure/package.json ./packages/infrastructure/
-COPY apps/api/package.json ./apps/api/
-COPY apps/worker/package.json ./apps/worker/
-COPY packages/infrastructure/prisma ./packages/infrastructure/prisma
-
-# Install all dependencies (including devDependencies for build)
-RUN pnpm install --frozen-lockfile
-
-# Generate Prisma client
-RUN cd packages/infrastructure && npx prisma generate
-
-# -----------------------------------------------------------------------------
-# Builder Stage - Build all packages and apps
+# Builder Stage - Install deps and build everything
 # -----------------------------------------------------------------------------
 FROM base AS builder
 WORKDIR /app
 
-# Copy all source files first
+# Copy all source files
 COPY . .
 
-# Copy node_modules from deps stage (including all workspace packages)
-COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/packages/core/node_modules ./packages/core/node_modules
-COPY --from=deps /app/packages/infrastructure/node_modules ./packages/infrastructure/node_modules
-COPY --from=deps /app/apps/api/node_modules ./apps/api/node_modules
-COPY --from=deps /app/apps/worker/node_modules ./apps/worker/node_modules
+# Install all dependencies (dev + prod)
+RUN pnpm install --frozen-lockfile
+
+# Generate Prisma client
+RUN cd packages/infrastructure && npx prisma generate
 
 # Build packages (in dependency order)
 RUN pnpm --filter @cbb/core build
