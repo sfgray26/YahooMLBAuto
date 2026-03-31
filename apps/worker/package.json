@@ -12,6 +12,8 @@
     "ingest": "tsx src/ingest.ts",
     "derive": "tsx src/derive.ts",
     "score": "tsx src/score.ts",
+    "test:e2e": "tsx src/test-e2e.ts",
+    "test:unit": "tsx src/test-unit.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
