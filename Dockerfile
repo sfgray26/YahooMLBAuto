@@ -15,7 +15,7 @@ RUN npm install -g pnpm@9.0.0
 FROM base AS builder
 WORKDIR /app
 
-# Copy all source files
+# Copy all source files (invalidate cache)
 COPY . .
 
 # Install all dependencies (dev + prod)
