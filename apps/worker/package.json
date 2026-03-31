@@ -1,0 +1,29 @@
+{
+  "name": "@cbb/worker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Background worker - data sync, simulations, decision processing",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/worker.ts",
+    "start": "node dist/worker.js",
+    "scheduler": "node dist/scheduler.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@cbb/core": "workspace:*",
+    "@cbb/infrastructure": "workspace:*",
+    "bullmq": "^5.7.0",
+    "ioredis": "^5.4.0",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/uuid": "^9.0.0",
+    "tsx": "^4.11.0",
+    "typescript": "^5.4.0",
+    "@types/node": "^20.0.0",
+    "vitest": "^1.6.0"
+  }
+}

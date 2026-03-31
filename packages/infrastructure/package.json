@@ -1,0 +1,28 @@
+{
+  "name": "@cbb/infrastructure",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Infrastructure layer - database, queue, caching",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc && pnpm prisma generate",
+    "dev": "tsc --watch",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:seed": "tsx src/database/seed.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.14.0",
+    "ioredis": "^5.4.0"
+  },
+  "devDependencies": {
+    "prisma": "^5.14.0",
+    "tsx": "^4.11.0",
+    "typescript": "^5.4.0",
+    "@types/node": "^20.0.0"
+  }
+}

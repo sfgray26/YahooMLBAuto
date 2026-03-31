@@ -1,0 +1,237 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// Core Decision Storage
+// ============================================================================
+
+model DecisionRequest {
+  id          String   @id @default(uuid())
+  version     String   @default("v1")
+  type        String   // 'lineup_optimization' | 'waiver_recommendation' | 'player_valuation'
+  createdAt   DateTime @default(now())
+  payload     Json     // Serialized request contract
+  status      String   @default("pending") // 'pending' | 'processing' | 'completed' | 'failed'
+  traceId     String   @unique
+  
+  // Relations
+  result      DecisionResult?
+  valuations  PlayerValuation[]
+  
+  @@index([status])
+  @@index([createdAt])
+  @@index([traceId])
+  @@map("decision_requests")
+}
+
+model DecisionResult {
+  id            String   @id @default(uuid())
+  requestId     String   @unique
+  request       DecisionRequest @relation(fields: [requestId], references: [id])
+  
+  createdAt     DateTime @default(now())
+  completedAt   DateTime?
+  
+  type          String   // 'lineup_result' | 'waiver_result' | 'valuation_result'
+  payload       Json     // Serialized result contract
+  
+  // Metadata
+  processingTimeMs Int?
+  confidence       String?
+  
+  @@map("decision_results")
+}
+
+// ============================================================================
+// Player Valuations Cache
+// ============================================================================
+
+model PlayerValuation {
+  id              String   @id @default(uuid())
+  version         String   @default("v1")
+  
+  // Player identity
+  playerId        String
+  playerMlbamId   String
+  playerName      String
+  playerTeam      String
+  playerPositions String[]
+  
+  // Context
+  scoringPeriodStart DateTime
+  scoringPeriodEnd   DateTime
+  
+  // Valuation data
+  generatedAt     DateTime
+  validUntil      DateTime
+  
+  // Projections (stored as JSON for flexibility)
+  pointProjection Json
+  valueOverReplacement Float
+  floorProjection      Float
+  ceilingProjection    Float
+  
+  // Risk
+  overallRisk          String
+  injuryRisk           String
+  playingTimeRisk      String
+  performanceVariance  String
+  
+  // Methodology
+  modelType       String
+  modelVersion    String
+  featuresUsed    String[]
+  
+  // Raw factors (stored as JSON array)
+  factors         Json
+  
+  // Audit
+  dataSources     Json
+  traceId         String?
+  requestId       String?
+  request         DecisionRequest? @relation(fields: [requestId], references: [id])
+  
+  @@index([playerId])
+  @@index([playerMlbamId])
+  @@index([scoringPeriodStart])
+  @@index([validUntil])
+  @@index([generatedAt])
+  @@map("player_valuations")
+}
+
+// ============================================================================
+// Execution Decisions Log
+// ============================================================================
+
+model ExecutionDecision {
+  id              String   @id @default(uuid())
+  version         String   @default("v1")
+  
+  createdAt       DateTime @default(now())
+  decisionType    String   // 'set_lineup' | 'add_player' | 'drop_player' | etc.
+  
+  // Target
+  targetType      String
+  targetId        String
+  targetPlatformId String?
+  
+  // Decision
+  recommendedAction Json
+  reasoning         Json
+  confidence        String
+  
+  // Safety
+  executionMode     String   // 'manual_review' | 'suggest_only' | 'auto_if_confident' | 'full_auto'
+  humanReviewRequired Boolean @default(true)
+  
+  // Status
+  status          String   @default("pending") // 'pending' | 'approved' | 'rejected' | 'executed' | 'expired'
+  decidedAt       DateTime?
+  decidedBy       String?  // 'user' | 'system' | 'automation'
+  
+  // Relations
+  sourceRequestId String?
+  traceId         String   @unique
+  
+  @@index([status])
+  @@index([decisionType])
+  @@index([createdAt])
+  @@index([targetId])
+  @@map("execution_decisions")
+}
+
+// ============================================================================
+// Lineup Results
+// ============================================================================
+
+model LineupResult {
+  id            String   @id @default(uuid())
+  requestId     String   @unique
+  generatedAt   DateTime @default(now())
+  
+  // Optimization context
+  scoringPeriodStart DateTime
+  scoringPeriodEnd   DateTime
+  
+  // Result
+  expectedPoints     Float
+  confidenceScore    Float
+  
+  // Stored as JSON arrays
+  optimalLineup      Json
+  alternativeLineups Json
+  explanation        Json
+  
+  // Metadata
+  traceId       String   @unique
+  
+  @@index([scoringPeriodStart])
+  @@map("lineup_results")
+}
+
+// ============================================================================
+// Waiver Recommendations
+// ============================================================================
+
+model WaiverResult {
+  id            String   @id @default(uuid())
+  requestId     String   @unique
+  generatedAt   DateTime @default(now())
+  
+  // Recommendations stored as JSON
+  recommendations Json
+  rosterAnalysis  Json
+  
+  // Metadata
+  traceId       String   @unique
+  
+  @@map("waiver_results")
+}
+
+// ============================================================================
+// Data Source Cache
+// ============================================================================
+
+model DataSourceCache {
+  id            String   @id @default(uuid())
+  source        String   // 'mlb_stats_api' | 'fangraphs' | 'weather_api'
+  endpoint      String
+  cacheKey      String   @unique
+  
+  fetchedAt     DateTime @default(now())
+  expiresAt     DateTime
+  
+  data          Json
+  etag          String?
+  
+  @@index([source])
+  @@index([expiresAt])
+  @@index([cacheKey])
+  @@map("data_source_cache")
+}
+
+// ============================================================================
+// System Events (for audit trail)
+// ============================================================================
+
+model SystemEvent {
+  id            String   @id @default(uuid())
+  eventId       String   @unique
+  eventType     String
+  timestamp     DateTime @default(now())
+  
+  payload       Json
+  
+  metadata      Json     // { source, traceId, correlationId, userId }
+  
+  @@index([eventType])
+  @@index([timestamp])
+  @@index([eventId])
+  @@map("system_events")
+}
