@@ -15,6 +15,9 @@ RUN npm install -g pnpm@9.0.0
 FROM base AS builder
 WORKDIR /app
 
+# Cache bust - forces rebuild when this value changes
+ARG CACHE_BUST=2
+
 # Copy all source files
 COPY . .
 
