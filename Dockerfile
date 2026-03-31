@@ -15,14 +15,14 @@ RUN npm install -g pnpm@9.0.0
 FROM base AS builder
 WORKDIR /app
 
-# Cache bust - forces rebuild when this value changes
-ARG CACHE_BUST=1
-
 # Copy all source files
 COPY . .
 
-# Install all dependencies (dev + prod)
-RUN pnpm install --frozen-lockfile
+# Force clean install (no cache)
+RUN rm -rf node_modules packages/*/node_modules apps/*/node_modules
+
+# Install all dependencies (dev + prod) - fresh install
+RUN pnpm install --no-frozen-lockfile
 
 # Generate Prisma client
 RUN cd packages/infrastructure && npx prisma generate
@@ -57,8 +57,8 @@ COPY --from=builder /app/packages/infrastructure/prisma ./packages/infrastructur
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
 COPY --from=builder /app/apps/worker/dist ./apps/worker/dist
 
-# Install production dependencies only
-RUN pnpm install --prod --frozen-lockfile
+# Install production dependencies only - fresh install
+RUN rm -rf node_modules && pnpm install --prod --no-frozen-lockfile
 
 # Generate Prisma client for production
 RUN cd packages/infrastructure && npx prisma generate
