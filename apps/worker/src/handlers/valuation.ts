@@ -41,7 +41,7 @@ export async function handleValuation(
         scoringPeriodEnd: new Date(scoringPeriod.end),
         generatedAt: new Date(valuation.generatedAt),
         validUntil: new Date(valuation.validUntil),
-        pointProjection: valuation.pointProjection as unknown as Record<string, unknown>,
+        pointProjection: valuation.pointProjection as any,
         valueOverReplacement: valuation.valueOverReplacement,
         floorProjection: valuation.floorProjection,
         ceilingProjection: valuation.ceilingProjection,

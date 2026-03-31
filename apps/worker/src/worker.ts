@@ -76,15 +76,19 @@ const decisionWorker = new Worker(
       }
       
       // Store result
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const resultPayload = result as any;
+      const confidenceScore = resultPayload.confidenceScore;
+      
       await prisma.decisionResult.create({
         data: {
           id: uuidv4(),
           requestId: payload.id,
           type: `${type}_result`,
-          payload: result as Record<string, unknown>,
+          payload: resultPayload,
           completedAt: new Date(),
           processingTimeMs: Date.now() - startTime,
-          confidence: result.confidenceScore || 'high',
+          confidence: confidenceScore || 'high',
         },
       });
       
@@ -95,11 +99,11 @@ const decisionWorker = new Worker(
       });
       
       // Trigger alert for high-confidence decisions
-      if (result.confidenceScore >= 0.85) {
+      if (confidenceScore >= 0.85) {
         await addAlert(
           'high_confidence_decision',
           `High confidence ${type} completed`,
-          { requestId: payload.id, confidence: result.confidenceScore },
+          { requestId: payload.id, confidence: confidenceScore },
           payload.id
         );
       }
