@@ -286,6 +286,76 @@ model PlayerDailyStats {
 }
 
 // ============================================================================
+// Derived Features Layer
+// Deterministic, reproducible transformations of raw data
+// ============================================================================
+
+model PlayerDerivedStats {
+  id            String   @id @default(uuid())
+  
+  playerId      String
+  playerMlbamId String
+  season        Int
+  
+  // Computation tracking
+  computedAt    DateTime @default(now())
+  computedDate  DateTime // For idempotency (date part only)
+  
+  // Volume features (rolling windows)
+  gamesLast7                Int @default(0)
+  gamesLast14               Int @default(0)
+  gamesLast30               Int @default(0)
+  plateAppearancesLast7     Int @default(0)
+  plateAppearancesLast14    Int @default(0)
+  plateAppearancesLast30    Int @default(0)
+  atBatsLast30              Int @default(0)
+  
+  // Rate features (rolling averages)
+  battingAverageLast30      Float?
+  onBasePctLast30           Float?
+  sluggingPctLast30         Float?
+  opsLast30                 Float?
+  isoLast30                 Float?
+  walkRateLast30            Float?
+  strikeoutRateLast30       Float?
+  babipLast30               Float?
+  
+  // Stabilization flags
+  battingAverageReliable    Boolean @default(false)
+  obpReliable               Boolean @default(false)
+  slgReliable               Boolean @default(false)
+  opsReliable               Boolean @default(false)
+  gamesToReliable           Int     @default(0)
+  
+  // Volatility metrics
+  hitConsistencyScore       Int     @default(0)
+  productionVolatility      Float   @default(0)
+  zeroHitGamesLast14        Int     @default(0)
+  multiHitGamesLast14       Int     @default(0)
+  
+  // Opportunity signals
+  gamesStartedLast14        Int     @default(0)
+  lineupSpot                Int?
+  platoonRisk               String? // 'low' | 'medium' | 'high'
+  playingTimeTrend          String? // 'up' | 'stable' | 'down'
+  
+  // Replacement context
+  positionEligibility       String[] @default([])
+  waiverWireValue           Float?
+  rosteredPercent           Float?
+  
+  // Audit
+  traceId       String
+  
+  // Natural key: one computation per player per day
+  @@unique([playerMlbamId, season, computedDate])
+  @@index([playerId])
+  @@index([season])
+  @@index([computedAt])
+  @@map("player_derived_stats")
+}
+
+// ============================================================================
 // Data Source Cache
 // ============================================================================
 

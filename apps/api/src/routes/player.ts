@@ -1,7 +1,7 @@
 /**
  * Player Routes
- * 
- * GET /players/:id/valuation - Get player valuation
+ *
+ * GET /players/:id/valuation - Get player valuation with derived features
  * GET /players/search - Search players
  */
 
@@ -17,16 +17,26 @@ export async function playerRoutes(
 ) {
   // ==========================================================================
   // GET /players/:id/valuation
-  // Get current valuation for a player
+  // Get current valuation for a player WITH derived features
   // ==========================================================================
   fastify.get('/:id/valuation', async (request, reply) => {
     const { id } = request.params as { id: string };
     const { date } = request.query as { date?: string };
-    
+
     const targetDate = date ? new Date(date) : new Date();
     const dateStr = targetDate.toISOString().split('T')[0];
-    
-    // Find most recent valid valuation for this player
+
+    // Get derived features first (these always exist if ingestion ran)
+    const derivedFeatures = await prisma.playerDerivedStats.findFirst({
+      where: {
+        playerMlbamId: id,
+      },
+      orderBy: {
+        computedAt: 'desc',
+      },
+    });
+
+    // Get valuation (may be empty until analytics layer is built)
     const valuation = await prisma.playerValuation.findFirst({
       where: {
         playerId: id,
@@ -39,26 +49,77 @@ export async function playerRoutes(
       },
     });
 
-    if (!valuation) {
+    // If no derived features and no valuation, player not found
+    if (!derivedFeatures && !valuation) {
       return reply.status(404).send({
-        error: 'No valuation found for player',
+        error: 'Player not found',
         playerId: id,
         date: dateStr,
-        message: 'Valuation may still be processing or player not found',
+        message: 'Player data may still be processing',
       });
     }
 
-    const report = valuation as unknown as PlayerValuationReport;
-    
-    return {
+    // Build feature-rich response
+    const response: Record<string, unknown> = {
       player: {
-        id: valuation.playerId,
-        mlbamId: valuation.playerMlbamId,
-        name: valuation.playerName,
-        team: valuation.playerTeam,
-        positions: valuation.playerPositions,
+        id: id,
+        mlbamId: derivedFeatures?.playerMlbamId || valuation?.playerMlbamId,
+        name: valuation?.playerName || `Player ${id}`,
+        team: derivedFeatures ? 'TBD' : valuation?.playerTeam,
+        positions: derivedFeatures?.positionEligibility || valuation?.playerPositions || [],
       },
-      valuation: {
+      features: derivedFeatures ? {
+        computedAt: derivedFeatures.computedAt,
+        volume: {
+          gamesLast7: derivedFeatures.gamesLast7,
+          gamesLast14: derivedFeatures.gamesLast14,
+          gamesLast30: derivedFeatures.gamesLast30,
+          plateAppearancesLast7: derivedFeatures.plateAppearancesLast7,
+          plateAppearancesLast14: derivedFeatures.plateAppearancesLast14,
+          plateAppearancesLast30: derivedFeatures.plateAppearancesLast30,
+          atBatsLast30: derivedFeatures.atBatsLast30,
+        },
+        rates: {
+          battingAverage: derivedFeatures.battingAverageLast30,
+          onBasePct: derivedFeatures.onBasePctLast30,
+          sluggingPct: derivedFeatures.sluggingPctLast30,
+          ops: derivedFeatures.opsLast30,
+          iso: derivedFeatures.isoLast30,
+          walkRate: derivedFeatures.walkRateLast30,
+          strikeoutRate: derivedFeatures.strikeoutRateLast30,
+          babip: derivedFeatures.babipLast30,
+        },
+        stabilization: {
+          battingAverageReliable: derivedFeatures.battingAverageReliable,
+          obpReliable: derivedFeatures.obpReliable,
+          slgReliable: derivedFeatures.slgReliable,
+          opsReliable: derivedFeatures.opsReliable,
+          gamesToReliable: derivedFeatures.gamesToReliable,
+        },
+        volatility: {
+          hitConsistencyScore: derivedFeatures.hitConsistencyScore,
+          productionVolatility: derivedFeatures.productionVolatility,
+          zeroHitGamesLast14: derivedFeatures.zeroHitGamesLast14,
+          multiHitGamesLast14: derivedFeatures.multiHitGamesLast14,
+        },
+        opportunity: {
+          gamesStartedLast14: derivedFeatures.gamesStartedLast14,
+          lineupSpot: derivedFeatures.lineupSpot,
+          platoonRisk: derivedFeatures.platoonRisk,
+          playingTimeTrend: derivedFeatures.playingTimeTrend,
+        },
+        replacement: {
+          positionEligibility: derivedFeatures.positionEligibility,
+          waiverWireValue: derivedFeatures.waiverWireValue,
+          rosteredPercent: derivedFeatures.rosteredPercent,
+        },
+      } : null,
+    };
+
+    // Add valuation if exists (analytics layer)
+    if (valuation) {
+      const report = valuation as unknown as PlayerValuationReport;
+      response.valuation = {
         generatedAt: valuation.generatedAt,
         validUntil: valuation.validUntil,
         pointProjection: valuation.pointProjection,
@@ -77,8 +138,10 @@ export async function playerRoutes(
           modelVersion: valuation.modelVersion,
           featuresUsed: valuation.featuresUsed,
         },
-      },
-    };
+      };
+    }
+
+    return response;
   });
 
   // ==========================================================================
@@ -86,29 +149,29 @@ export async function playerRoutes(
   // Search for players
   // ==========================================================================
   fastify.get('/search', async (request, reply) => {
-    const { q, team, position, limit = '20' } = request.query as { 
-      q?: string; 
-      team?: string; 
+    const { q, team, position, limit = '20' } = request.query as {
+      q?: string;
+      team?: string;
       position?: string;
       limit?: string;
     };
-    
+
     const where: Record<string, unknown> = {};
-    
+
     if (q) {
       where.playerName = {
         contains: q,
         mode: 'insensitive',
       };
     }
-    
+
     if (team) {
       where.playerTeam = {
         equals: team,
         mode: 'insensitive',
       };
     }
-    
+
     if (position) {
       where.playerPositions = {
         has: position.toUpperCase(),
@@ -151,13 +214,13 @@ export async function playerRoutes(
   // Get top valued players
   // ==========================================================================
   fastify.get('/top', async (request, reply) => {
-    const { position, limit = '50' } = request.query as { 
+    const { position, limit = '50' } = request.query as {
       position?: string;
       limit?: string;
     };
-    
+
     const where: Record<string, unknown> = {};
-    
+
     if (position) {
       where.playerPositions = {
         has: position.toUpperCase(),

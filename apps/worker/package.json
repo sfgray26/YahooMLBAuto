@@ -10,6 +10,7 @@
     "start": "node dist/worker.js",
     "scheduler": "node dist/scheduler.js",
     "ingest": "tsx src/ingest.ts",
+    "derive": "tsx src/derive.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
