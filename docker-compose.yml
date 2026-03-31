@@ -1,0 +1,86 @@
+version: '3.8'
+
+services:
+  # ==========================================================================
+  # PostgreSQL Database
+  # ==========================================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: cbb-postgres
+    environment:
+      POSTGRES_USER: cbb
+      POSTGRES_PASSWORD: cbb
+      POSTGRES_DB: cbb
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cbb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ==========================================================================
+  # Redis Cache & Queue
+  # ==========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: cbb-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ==========================================================================
+  # API Service
+  # ==========================================================================
+  api:
+    build:
+      context: .
+      target: production
+    container_name: cbb-api
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_URL: postgresql://cbb:cbb@postgres:5432/cbb
+      REDIS_URL: redis://redis:6379
+      LOG_LEVEL: debug
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: node apps/api/dist/server.js
+
+  # ==========================================================================
+  # Worker Service
+  # ==========================================================================
+  worker:
+    build:
+      context: .
+      target: production
+    container_name: cbb-worker
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://cbb:cbb@postgres:5432/cbb
+      REDIS_URL: redis://redis:6379
+      LOG_LEVEL: debug
+      WORKER_CONCURRENCY: "3"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: node apps/worker/dist/worker.js
+
+volumes:
+  postgres_data:
+  redis_data:

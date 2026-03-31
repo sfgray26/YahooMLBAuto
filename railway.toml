@@ -1,0 +1,78 @@
+# Railway Service Configuration
+# This defines all services for the CBB Edge Analyzer deployment
+
+# ============================================================================
+# API Service - HTTP API
+# ============================================================================
+[[services]]
+name = "api"
+
+[services.build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[services.deploy]
+startCommand = "node apps/api/dist/server.js"
+numReplicas = 1
+healthcheckPath = "/health"
+healthcheckTimeout = 100
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+
+[services.deploy.resources]
+memory = "512Mi"
+
+[services.environment]
+NODE_ENV = "production"
+PORT = "3000"
+LOG_LEVEL = "info"
+SERVICE_NAME = "api"
+
+# ============================================================================
+# Worker Service - Background job processor
+# ============================================================================
+[[services]]
+name = "worker"
+
+[services.build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[services.deploy]
+startCommand = "node apps/worker/dist/worker.js"
+numReplicas = 1
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5
+
+[services.deploy.resources]
+memory = "1Gi"
+
+[services.environment]
+NODE_ENV = "production"
+LOG_LEVEL = "info"
+WORKER_CONCURRENCY = "5"
+SERVICE_NAME = "worker"
+
+# ============================================================================
+# Scheduler Service - Cron job runner
+# ============================================================================
+[[services]]
+name = "scheduler"
+
+[services.build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[services.deploy]
+startCommand = "node apps/worker/dist/scheduler.js"
+
+[services.schedule]
+cron = "*/15 * * * *"
+
+[services.deploy.resources]
+memory = "512Mi"
+
+[services.environment]
+NODE_ENV = "production"
+LOG_LEVEL = "info"
+SERVICE_NAME = "scheduler"
