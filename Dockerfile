@@ -16,14 +16,14 @@ FROM base AS deps
 WORKDIR /app
 
 # Copy package files
-COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml* turbo.json ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
 COPY packages/core/package.json ./packages/core/
 COPY packages/infrastructure/package.json ./packages/infrastructure/
 COPY apps/api/package.json ./apps/api/
 COPY apps/worker/package.json ./apps/worker/
 COPY packages/infrastructure/prisma ./packages/infrastructure/prisma
 
-# Install dependencies
+# Install all dependencies (including devDependencies for build)
 RUN pnpm install --frozen-lockfile
 
 # Generate Prisma client
@@ -35,15 +35,15 @@ RUN cd packages/infrastructure && npx prisma generate
 FROM base AS builder
 WORKDIR /app
 
-# Copy dependencies from deps stage
+# Copy all source files first
+COPY . .
+
+# Copy node_modules from deps stage (including all workspace packages)
 COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/packages/infrastructure/node_modules ./packages/infrastructure/node_modules
 COPY --from=deps /app/packages/core/node_modules ./packages/core/node_modules
+COPY --from=deps /app/packages/infrastructure/node_modules ./packages/infrastructure/node_modules
 COPY --from=deps /app/apps/api/node_modules ./apps/api/node_modules
 COPY --from=deps /app/apps/worker/node_modules ./apps/worker/node_modules
-
-# Copy source files
-COPY . .
 
 # Build packages (in dependency order)
 RUN pnpm --filter @cbb/core build
