@@ -16,7 +16,7 @@ FROM base AS builder
 WORKDIR /app
 
 # Cache bust - forces rebuild when this value changes
-ARG CACHE_BUST=2
+ARG CACHE_BUST=3
 
 # Copy all source files
 COPY . .
@@ -64,7 +64,7 @@ COPY --from=builder /app/apps/worker/dist ./apps/worker/dist
 RUN rm -rf node_modules && pnpm install --prod --no-frozen-lockfile
 
 # Generate Prisma client for production
-RUN cd packages/infrastructure && npx prisma generate
+RUN cd packages/infrastructure && npx prisma@5.22.0 generate
 
 # Set environment
 ENV NODE_ENV=production
