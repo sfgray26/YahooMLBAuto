@@ -14,6 +14,7 @@
     "score": "tsx src/score.ts",
     "test:e2e": "tsx src/test-e2e.ts",
     "test:unit": "tsx src/test-unit.ts",
+    "test:mc": "tsx src/test-monte-carlo.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

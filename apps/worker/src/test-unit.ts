@@ -179,7 +179,7 @@ const mockLineupRequest: LineupOptimizationRequest = {
     lastUpdated: new Date().toISOString(),
   },
   optimizationObjective: { type: 'maximize_expected' },
-  riskTolerance: { type: 'balanced', varianceTolerance: 0.3, description: 'Balance' },
+  riskTolerance: { type: 'balanced', varianceTolerance: 0.3, description: 'Balance risk and reward' },
   manualOverrides: [],
 };
 
