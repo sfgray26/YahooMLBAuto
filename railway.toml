@@ -76,3 +76,16 @@ memory = "512Mi"
 NODE_ENV = "production"
 LOG_LEVEL = "info"
 SERVICE_NAME = "scheduler"
+
+# ============================================================================
+# Migration Job (runs on deploy)
+# ============================================================================
+[[services]]
+name = "db-migrate"
+
+[services.build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[services.deploy]
+startCommand = "cd packages/infrastructure && npx prisma migrate deploy"
