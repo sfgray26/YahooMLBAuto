@@ -25,3 +25,14 @@ export type {
   AnalyticsJob,
   AlertJob,
 } from './queue/index.js';
+
+// Persistence
+export {
+  persistLineupDecision,
+  persistWaiverDecision,
+  updateLineupDecisionWithActualResults,
+  updateWaiverDecisionWithActualResults,
+  queryDecisions,
+  getDecisionById,
+  getDecisionPerformanceSummary,
+} from './persistence/decision-repository.js';

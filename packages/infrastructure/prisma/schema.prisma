@@ -396,3 +396,134 @@ model SystemEvent {
   @@index([eventId])
   @@map("system_events")
 }
+
+// ============================================================================
+// Decision Persistence (Step 5: Non-negotiable for elite systems)
+// Every decision stored with full metadata for backtesting and auditing
+// ============================================================================
+
+model PersistedDecision {
+  id              String   @id @default(uuid())
+  decisionId      String   @unique
+  
+  // Decision context
+  decisionType    String   // 'lineup' | 'waiver_add' | 'waiver_drop' | 'waiver_swap'
+  teamId          String
+  leagueId        String
+  season          Int
+  
+  // Timing
+  createdAt       DateTime @default(now())
+  executedAt      DateTime?
+  status          String   @default("pending") // 'pending' | 'executed' | 'rejected' | 'expired'
+  
+  // Core decision data (full snapshot)
+  teamStateSnapshot Json
+  decisionPayload   Json   // The actual decision (lineup, waiver, etc.)
+  
+  // Scores used at decision time
+  scoresSnapshot    Json   // Map of playerId -> score data
+  
+  // Monte Carlo data
+  monteCarloData    Json?  // Map of playerId -> MC percentiles
+  
+  // Confidence metrics
+  confidence        Float
+  confidenceFactors String[] // What drove the confidence score
+  
+  // For backtesting
+  actualResult      Json?  // Filled in after scoring period
+  accuracyMetrics   Json?  // Calculated after results come in
+  
+  // Metadata
+  traceId           String   @unique
+  reason            String
+  
+  // Query indexes
+  @@index([teamId])
+  @@index([decisionType])
+  @@index([season])
+  @@index([createdAt])
+  @@index([status])
+  @@map("persisted_decisions")
+}
+
+model LineupDecisionDetail {
+  id              String   @id @default(uuid())
+  decisionId      String   @unique
+  decision        PersistedDecision @relation(fields: [decisionId], references: [decisionId])
+  
+  // Scoring period
+  scoringPeriod   DateTime
+  
+  // Optimal lineup (stored as JSON array)
+  optimalLineup   Json
+  
+  // Bench assignments
+  benchDecisions  Json
+  
+  // Expected points
+  expectedPoints  Float
+  confidenceScore Float
+  
+  // Alternatives
+  alternatives    Json
+  
+  // Key decisions made
+  keyDecisions    Json
+  
+  // Roster context
+  lockedPlayerCount Int
+  injuredPlayerCount Int
+  
+  // For backtesting
+  actualPoints    Float?
+  projectionError Float?   // actual - expected
+  projectionErrorPercent Float?
+  
+  // Whether an alternative would have been better
+  alternativeWouldHaveBeenBetter Boolean?
+  bestAlternativePoints Float?
+  
+  @@index([scoringPeriod])
+  @@index([actualPoints])
+  @@map("lineup_decision_details")
+}
+
+model WaiverDecisionDetail {
+  id              String   @id @default(uuid())
+  decisionId      String   @unique
+  decision        PersistedDecision @relation(fields: [decisionId], references: [decisionId])
+  
+  // Target player
+  targetPlayerId  String
+  targetPlayerName String
+  targetPlayerMlbamId String
+  
+  // Drop player (if swap)
+  dropPlayerId    String?
+  dropPlayerName  String?
+  
+  // Values at decision time
+  targetValue     Float
+  dropValue       Float?
+  netValue        Float
+  
+  // Waiver context
+  bidAmount       Float?
+  waiverPriority  Int?
+  faabRemaining   Float
+  
+  // Roster analysis snapshot
+  rosterAnalysis  Json
+  
+  // For backtesting
+  claimSucceeded  Boolean?
+  actualCost      Float?
+  weeksOwned      Int?
+  pointsContributed Float?
+  roi             Float?   // Return on investment
+  wasGoodDecision Boolean? // With hindsight
+  
+  @@map("waiver_decision_details")
+}

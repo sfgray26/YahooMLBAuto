@@ -1,25 +1,25 @@
 /**
- * Waiver Decision Assembly - DOMAIN AWARE with PITCHER EDGE
+ * Waiver Decision Assembly - TEAM STATE AWARE
  *
- * CRITICAL PRINCIPLE: Pitchers are the waiver cheat code.
- * 
- * Why pitchers dominate waivers:
- * 1. Higher volatility = more opportunities to find value
- * 2. Streaming SPs is a known winning strategy
- * 3. Closers emerge throughout the season (role changes)
- * 4. Holds leagues have hidden value in middle relievers
- * 5. One hot streak can win a week (unlike hitters)
+ * Decision = f(TeamState, PlayerScores, MonteCarloData)
  *
- * WAIVER STRATEGY:
- * - Prioritize high-upside pitchers in uncertain markets
- * - Track role changes (closer/holds opportunities)
- * - Stream starters with favorable matchups
- * - Don't chase hitting on waivers (stable, predictable)
+ * This assembly:
+ * 1. Compares roster vs replacement pool (from TeamState roster)
+ * 2. Factors bench flexibility (from TeamState lineup)
+ * 3. Factors position coverage (from TeamState roster composition)
+ * 4. Prioritizes pitcher edge detection (domain-aware)
+ * 5. Respects waiver budget (from TeamState waiverState)
+ *
+ * What does NOT change:
+ * - Scoring logic
+ * - Monte Carlo logic
+ * - Waiver edge calculation
  */
 
-import type { UUID, ISO8601Timestamp } from '@cbb/core';
-import type {
-  WaiverRecommendationRequest,
+import type { 
+  UUID, 
+  ISO8601Timestamp,
+  TeamState,
   WaiverRecommendationResult,
   WaiverRecommendation,
   RosterAnalysis,
@@ -28,15 +28,31 @@ import type {
 } from '@cbb/core';
 import type { PlayerScore } from '../scoring/index.js';
 import type { PitcherScore } from '../pitchers/index.js';
+import { 
+  isPlayerOnRoster,
+  getRosterPlayer,
+  getRosterPlayerByMlbamId,
+} from '@cbb/core';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-export interface DomainAwareWaiverInput {
-  request: WaiverRecommendationRequest;
+export interface TeamStateWaiverInput {
+  teamState: TeamState;
   hitterScores: Map<string, PlayerScore>;
   pitcherScores: Map<string, PitcherScore>;
+  availablePlayers: AvailablePlayer[];  // FA/Waiver pool - NOT from TeamState
+}
+
+export interface AvailablePlayer {
+  playerId: UUID;
+  mlbamId: string;
+  name: string;
+  team: string;
+  positions: string[];
+  percentOwned: number;  // For waiver priority assessment
+  percentStarted: number;
 }
 
 export interface WaiverAssemblyResult {
@@ -45,9 +61,6 @@ export interface WaiverAssemblyResult {
   errors: string[];
   traceId: string;
 }
-
-// Domain discriminator
-export type PerformanceDomain = 'hitting' | 'pitching';
 
 interface ScoredHitter {
   player: PlayerIdentity;
@@ -62,7 +75,7 @@ interface ScoredPitcher {
   overallValue: number;
   role: PitcherScore['role'];
   domain: 'pitching';
-  waiverEdge: number;  // Calculated edge score
+  waiverEdge: number;
 }
 
 type ScoredPlayer = ScoredHitter | ScoredPitcher;
@@ -71,87 +84,50 @@ type ScoredPlayer = ScoredHitter | ScoredPitcher;
 // Domain Classification
 // ============================================================================
 
-function isPitcher(player: PlayerIdentity): boolean {
-  return player.position.some(p => 
+function isPitcher(positions: string[]): boolean {
+  return positions.some(p => 
     ['SP', 'RP', 'P', 'CL'].includes(p.toUpperCase())
   );
 }
 
-// ============================================================================
-// Pitcher Edge Calculation
-// ============================================================================
-
-/**
- * Calculate the "waiver edge" for a pitcher.
- * This is the secret sauce - identifies pitchers who are waiver gold.
- */
 function calculatePitcherWaiverEdge(pitcher: ScoredPitcher): number {
   const score = pitcher.score;
   let edge = 0;
 
-  // 1. Role change opportunity (biggest edge)
+  // Role change opportunity
   if (score.role.isCloser) {
-    // New closer with decent stuff = massive edge
     edge += score.components.stuff >= 60 ? 25 : 15;
   } else if (score.role.holdsEligible && score.components.stuff >= 65) {
-    // High-strikeout setup man for holds leagues
     edge += 15;
   } else if (score.role.currentRole === 'SP' && score.role.startProbabilityNext7 > 0.8) {
-    // Streaming starter with two starts
     edge += 20;
   }
 
-  // 2. Skills > results discrepancy (buy low)
+  // Skills > results discrepancy
   if (score.components.stuff >= 70 && score.components.results <= 45) {
-    // Dominant stuff, poor results = buy low opportunity
     edge += 15;
   }
 
-  // 3. Workload upside
+  // Workload upside
   if (score.components.workload >= 70 && score.role.expectedInningsPerWeek >= 12) {
-    // Workhorse SP who can accumulate volume
     edge += 10;
   }
 
-  // 4. Consistency floor (avoid blow-up artists)
+  // Consistency
   if (score.components.consistency >= 60) {
     edge += 5;
   } else if (score.components.consistency <= 35) {
-    edge -= 10;  // Penalty for blow-up risk
+    edge -= 10;
   }
 
-  // 5. Matchup context
+  // Matchup
   if (score.components.matchup >= 65) {
-    edge += 5;  // Favorable upcoming matchups
-  }
-
-  // 6. Confidence adjustment
-  if (score.reliability.sampleSize === 'small') {
-    edge -= 5;  // Small sample uncertainty
-  }
-
-  return edge;
-}
-
-/**
- * Calculate waiver edge for hitters (more conservative).
- */
-function calculateHitterWaiverEdge(hitter: ScoredHitter): number {
-  const score = hitter.score;
-  let edge = 0;
-
-  // Hitters are more stable - less edge on waivers generally
-  if (score.components.opportunity >= 75 && score.components.consistency >= 60) {
-    edge += 10;  // Full-time player with consistency
-  }
-
-  if (score.components.power >= 70 || score.components.speed >= 70) {
-    edge += 8;  // Category specialist
-  }
-
-  // Platoon advantage
-  if (score.components.opportunity >= 70 && score.reliability.sampleSize === 'adequate') {
     edge += 5;
+  }
+
+  // Confidence adjustment
+  if (score.reliability.sampleSize === 'small') {
+    edge -= 5;
   }
 
   return edge;
@@ -161,59 +137,33 @@ function calculateHitterWaiverEdge(hitter: ScoredHitter): number {
 // Main Assembly Function
 // ============================================================================
 
-/**
- * Assemble waiver recommendations with pitcher edge detection.
- * Pitchers are prioritized as the waiver cheat code.
- */
-export function assembleWaiverDecisionsDomainAware(
-  input: DomainAwareWaiverInput
+export function assembleWaiverDecisionsFromTeamState(
+  input: TeamStateWaiverInput
 ): WaiverAssemblyResult {
-  const { request, hitterScores, pitcherScores } = input;
+  const { teamState, hitterScores, pitcherScores, availablePlayers } = input;
   const errors: string[] = [];
   const traceId = crypto.randomUUID();
 
   try {
-    // Build scored players list with domain and edge
-    const rosterPlayers: ScoredPlayer[] = [];
-    const availablePlayers: ScoredPlayer[] = [];
+    // Build roster players with scores
+    const rosterHitters: ScoredHitter[] = [];
+    const rosterPitchers: ScoredPitcher[] = [];
 
-    // Process roster
-    for (const slot of request.currentRoster) {
-      if (isPitcher(slot.player)) {
-        const score = pitcherScores.get(slot.player.mlbamId);
-        if (score) {
-          const pitcher: ScoredPitcher = {
-            player: slot.player,
-            score,
-            overallValue: score.overallValue,
-            role: score.role,
-            domain: 'pitching',
-            waiverEdge: 0,  // Will calculate below
-          };
-          pitcher.waiverEdge = calculatePitcherWaiverEdge(pitcher);
-          rosterPlayers.push(pitcher);
-        }
-      } else {
-        const score = hitterScores.get(slot.player.mlbamId);
-        if (score) {
-          const hitter: ScoredHitter = {
-            player: slot.player,
-            score,
-            overallValue: score.overallValue,
-            domain: 'hitting',
-          };
-          rosterPlayers.push(hitter);
-        }
+    for (const rosterPlayer of teamState.roster.players) {
+      if (rosterPlayer.isInjured && rosterPlayer.injuryStatus !== 'day_to_day') {
+        continue;  // Skip injured players
       }
-    }
 
-    // Process available players
-    for (const avail of request.availablePlayers.players.filter(p => p.isAvailable)) {
-      if (isPitcher(avail.player)) {
-        const score = pitcherScores.get(avail.player.mlbamId);
+      if (isPitcher(rosterPlayer.positions)) {
+        const score = pitcherScores.get(rosterPlayer.mlbamId);
         if (score) {
           const pitcher: ScoredPitcher = {
-            player: avail.player,
+            player: {
+              id: rosterPlayer.playerId,
+              mlbamId: rosterPlayer.mlbamId,
+              name: rosterPlayer.name,
+              position: rosterPlayer.positions,
+            },
             score,
             overallValue: score.overallValue,
             role: score.role,
@@ -221,23 +171,69 @@ export function assembleWaiverDecisionsDomainAware(
             waiverEdge: 0,
           };
           pitcher.waiverEdge = calculatePitcherWaiverEdge(pitcher);
-          availablePlayers.push(pitcher);
+          rosterPitchers.push(pitcher);
         }
       } else {
-        const score = hitterScores.get(avail.player.mlbamId);
+        const score = hitterScores.get(rosterPlayer.mlbamId);
         if (score) {
-          const hitter: ScoredHitter = {
-            player: avail.player,
+          rosterHitters.push({
+            player: {
+              id: rosterPlayer.playerId,
+              mlbamId: rosterPlayer.mlbamId,
+              name: rosterPlayer.name,
+              position: rosterPlayer.positions,
+            },
             score,
             overallValue: score.overallValue,
             domain: 'hitting',
-          };
-          availablePlayers.push(hitter);
+          });
         }
       }
     }
 
-    if (availablePlayers.length === 0) {
+    // Build available players with scores
+    const availableHitters: ScoredHitter[] = [];
+    const availablePitchers: ScoredPitcher[] = [];
+
+    for (const avail of availablePlayers) {
+      if (isPitcher(avail.positions)) {
+        const score = pitcherScores.get(avail.mlbamId);
+        if (score) {
+          const pitcher: ScoredPitcher = {
+            player: {
+              id: avail.playerId,
+              mlbamId: avail.mlbamId,
+              name: avail.name,
+              position: avail.positions,
+            },
+            score,
+            overallValue: score.overallValue,
+            role: score.role,
+            domain: 'pitching',
+            waiverEdge: 0,
+          };
+          pitcher.waiverEdge = calculatePitcherWaiverEdge(pitcher);
+          availablePitchers.push(pitcher);
+        }
+      } else {
+        const score = hitterScores.get(avail.mlbamId);
+        if (score) {
+          availableHitters.push({
+            player: {
+              id: avail.playerId,
+              mlbamId: avail.mlbamId,
+              name: avail.name,
+              position: avail.positions,
+            },
+            score,
+            overallValue: score.overallValue,
+            domain: 'hitting',
+          });
+        }
+      }
+    }
+
+    if (availableHitters.length === 0 && availablePitchers.length === 0) {
       return {
         success: false,
         errors: ['No available players with computed scores'],
@@ -245,42 +241,37 @@ export function assembleWaiverDecisionsDomainAware(
       };
     }
 
-    // Build roster analysis
-    const rosterAnalysis = analyzeRosterDomainAware(rosterPlayers, request);
+    // Build roster analysis with TeamState context
+    const rosterAnalysis = analyzeRosterWithTeamState(
+      rosterHitters,
+      rosterPitchers,
+      teamState
+    );
 
     // Generate recommendations
     const recommendations: WaiverRecommendation[] = [];
 
-    switch (request.recommendationScope) {
-      case 'add_only':
-        recommendations.push(...generateAddRecommendationsDomainAware(availablePlayers));
-        break;
+    // Pitcher recommendations (priority - the cheat code)
+    recommendations.push(...generatePitcherRecommendations(
+      rosterPitchers,
+      availablePitchers,
+      teamState
+    ));
 
-      case 'drop_only':
-        recommendations.push(...generateDropRecommendationsDomainAware(rosterPlayers));
-        break;
+    // Hitter recommendations
+    recommendations.push(...generateHitterRecommendations(
+      rosterHitters,
+      availableHitters,
+      teamState
+    ));
 
-      case 'add_drop':
-      case 'full_optimization':
-        recommendations.push(...generateSwapRecommendationsDomainAware(
-          rosterPlayers,
-          availablePlayers
-        ));
-        break;
-    }
-
-    // Rank by edge (pitchers get priority)
+    // Sort by effective value (pitcher edge bonus)
     const rankedRecommendations = recommendations
-      .sort((a, b) => {
-        // Pitcher edge bonus in ranking
-        const aEdge = a.expectedValue;
-        const bEdge = b.expectedValue;
-        return bEdge - aEdge;
-      })
+      .sort((a, b) => b.expectedValue - a.expectedValue)
       .map((r, i) => ({ ...r, rank: i + 1 }));
 
     const result: WaiverRecommendationResult = {
-      requestId: request.id,
+      requestId: traceId,
       generatedAt: new Date().toISOString() as ISO8601Timestamp,
       recommendations: rankedRecommendations.slice(0, 10),
       rosterAnalysis,
@@ -303,29 +294,31 @@ export function assembleWaiverDecisionsDomainAware(
 }
 
 // ============================================================================
-// Analysis Functions
+// Roster Analysis with TeamState Context
 // ============================================================================
 
-function analyzeRosterDomainAware(
-  rosterPlayers: ScoredPlayer[],
-  request: WaiverRecommendationRequest
+function analyzeRosterWithTeamState(
+  rosterHitters: ScoredHitter[],
+  rosterPitchers: ScoredPitcher[],
+  teamState: TeamState
 ): RosterAnalysis {
   const strengths: string[] = [];
   const weaknesses: string[] = [];
   const opportunities: string[] = [];
 
-  const hitters = rosterPlayers.filter(p => p.domain === 'hitting') as ScoredHitter[];
-  const pitchers = rosterPlayers.filter(p => p.domain === 'pitching') as ScoredPitcher[];
-
   // Hitter analysis
-  const hitterAvg = hitters.reduce((sum, h) => sum + h.overallValue, 0) / (hitters.length || 1);
+  const hitterAvg = rosterHitters.length > 0 
+    ? rosterHitters.reduce((sum, h) => sum + h.overallValue, 0) / rosterHitters.length 
+    : 0;
+  
   if (hitterAvg >= 60) strengths.push('Strong hitting core');
-  else if (hitterAvg < 50) weaknesses.push('Weak hitting foundation');
+  else if (hitterAvg < 50 && rosterHitters.length > 0) weaknesses.push('Weak hitting foundation');
 
-  // Pitcher analysis
-  const spCount = pitchers.filter(p => p.role.currentRole === 'SP').length;
-  const closerCount = pitchers.filter(p => p.role.isCloser).length;
-  const holdsCount = pitchers.filter(p => p.role.holdsEligible).length;
+  // Pitcher analysis with role breakdown
+  const spCount = rosterPitchers.filter(p => p.role.currentRole === 'SP').length;
+  const closerCount = rosterPitchers.filter(p => p.role.isCloser).length;
+  const holdsCount = rosterPitchers.filter(p => p.role.holdsEligible).length;
+  const highEdgePitchers = rosterPitchers.filter(p => p.waiverEdge >= 20);
 
   if (spCount >= 5) strengths.push('Deep starting rotation');
   else if (spCount < 3) weaknesses.push('Shallow rotation - stream opportunities');
@@ -338,18 +331,31 @@ function analyzeRosterDomainAware(
 
   if (holdsCount >= 2) strengths.push('Holds coverage');
 
-  // Waiver opportunities (the cheat code)
-  const streamingOpportunities = pitchers.filter(
-    p => p.role.currentRole === 'SP' && p.role.startProbabilityNext7 > 0.5
-  ).length;
-  if (streamingOpportunities < 2) {
-    opportunities.push('Stream starting pitchers for volume');
+  // Bench analysis from TeamState
+  const benchSize = teamState.lineupConfig.benchSlots;
+  const assignedToBench = teamState.currentLineup.benchAssignments.length;
+  const benchFlexibility = assignedToBench > 0 
+    ? assignedToBench / benchSize 
+    : 0;
+
+  if (benchFlexibility >= 0.8) {
+    opportunities.push('Full bench - consider streaming upgrades');
+  } else if (benchFlexibility <= 0.3) {
+    weaknesses.push('Empty bench - limited flexibility');
   }
 
-  // High-edge pitchers available
-  const highEdgePitchers = pitchers.filter(p => p.waiverEdge >= 20);
+  // High-edge pitchers on roster
   if (highEdgePitchers.length > 0) {
     opportunities.push(`${highEdgePitchers.length} high-upside pitchers on roster`);
+  }
+
+  // Waiver budget context
+  const budgetRemaining = teamState.waiverState.budgetRemaining;
+  const budgetTotal = teamState.waiverState.budgetTotal;
+  if (budgetRemaining < budgetTotal * 0.2) {
+    weaknesses.push(`Low FAAB (${budgetRemaining}/${budgetTotal}) - spend wisely`);
+  } else if (budgetRemaining > budgetTotal * 0.5) {
+    opportunities.push(`Healthy FAAB budget (${budgetRemaining}) for bids`);
   }
 
   return { strengths, weaknesses, opportunities };
@@ -359,123 +365,35 @@ function analyzeRosterDomainAware(
 // Recommendation Generators
 // ============================================================================
 
-function generateAddRecommendationsDomainAware(
-  availablePlayers: ScoredPlayer[]
+function generatePitcherRecommendations(
+  rosterPitchers: ScoredPitcher[],
+  availablePitchers: ScoredPitcher[],
+  teamState: TeamState
 ): WaiverRecommendation[] {
   const recommendations: WaiverRecommendation[] = [];
 
-  // Separate by domain
-  const availablePitchers = availablePlayers.filter(
-    p => p.domain === 'pitching'
-  ) as ScoredPitcher[];
-  const availableHitters = availablePlayers.filter(
-    p => p.domain === 'hitting'
-  ) as ScoredHitter[];
-
-  // Prioritize pitchers with high edge (the cheat code)
-  const highEdgePitchers = availablePitchers
+  // Sort available by edge
+  const highEdgeAvailable = availablePitchers
     .filter(p => p.waiverEdge >= 15)
     .sort((a, b) => b.waiverEdge - a.waiverEdge);
 
-  for (const pitcher of highEdgePitchers.slice(0, 5)) {
-    const edge = pitcher.waiverEdge;
-    const isCloser = pitcher.role.isCloser;
-    const isStreamer = pitcher.role.currentRole === 'SP' && pitcher.role.startProbabilityNext7 > 0.7;
+  // Find droppable roster pitchers
+  const droppablePitchers = rosterPitchers.filter(p => 
+    p.overallValue < 50 && p.waiverEdge < 10
+  );
 
-    recommendations.push({
-      rank: 0,
-      player: pitcher.player,
-      action: 'add',
-      expectedValue: pitcher.overallValue + edge,
-      confidence: mapConfidence(pitcher.score.confidence),
-      reasoning: generatePitcherAddReasoning(pitcher),
-      urgency: isCloser ? 'critical' : isStreamer ? 'high' : 'medium',
-    });
-  }
-
-  // Add top hitters (lower priority)
-  const topHitters = availableHitters
-    .filter(h => h.overallValue >= 55)
-    .sort((a, b) => b.overallValue - a.overallValue);
-
-  for (const hitter of topHitters.slice(0, 3)) {
-    recommendations.push({
-      rank: 0,
-      player: hitter.player,
-      action: 'add',
-      expectedValue: hitter.overallValue,
-      confidence: mapConfidence(hitter.score.confidence),
-      reasoning: generateHitterAddReasoning(hitter),
-      urgency: 'medium',
-    });
-  }
-
-  return recommendations;
-}
-
-function generateDropRecommendationsDomainAware(
-  rosterPlayers: ScoredPlayer[]
-): WaiverRecommendation[] {
-  const recommendations: WaiverRecommendation[] = [];
-
-  const droppable = rosterPlayers.filter(p => {
-    if (p.domain === 'pitching') {
-      const pitcher = p as ScoredPitcher;
-      // Drop low-value pitchers without role upside
-      return pitcher.overallValue < 40 && pitcher.waiverEdge < 5;
-    } else {
-      const hitter = p as ScoredHitter;
-      return (
-        hitter.overallValue < 40 ||
-        hitter.score.reliability.sampleSize === 'insufficient' ||
-        hitter.score.components.opportunity < 30
-      );
-    }
-  });
-
-  for (const player of droppable.slice(0, 3)) {
-    const reasoning = player.domain === 'pitching'
-      ? generatePitcherDropReasoning(player as ScoredPitcher)
-      : generateHitterDropReasoning(player as ScoredHitter);
-
-    recommendations.push({
-      rank: 0,
-      player: player.player,
-      action: 'drop',
-      expectedValue: -player.overallValue,
-      confidence: 'moderate',
-      reasoning,
-      urgency: 'low',
-    });
-  }
-
-  return recommendations;
-}
-
-function generateSwapRecommendationsDomainAware(
-  rosterPlayers: ScoredPlayer[],
-  availablePlayers: ScoredPlayer[]
-): WaiverRecommendation[] {
-  const recommendations: WaiverRecommendation[] = [];
-
-  // Group by domain
-  const rosterPitchers = rosterPlayers.filter(p => p.domain === 'pitching') as ScoredPitcher[];
-  const rosterHitters = rosterPlayers.filter(p => p.domain === 'hitting') as ScoredHitter[];
-  const availPitchers = availablePlayers.filter(p => p.domain === 'pitching') as ScoredPitcher[];
-  const availHitters = availablePlayers.filter(p => p.domain === 'hitting') as ScoredHitter[];
-
-  // Pitcher swaps (priority)
-  const droppablePitchers = rosterPitchers.filter(p => p.overallValue < 50 && p.waiverEdge < 10);
-  const highEdgeAvailable = availPitchers.filter(p => p.waiverEdge >= 15);
-
+  // Generate swap recommendations
   for (const avail of highEdgeAvailable.slice(0, 5)) {
     const bestDrop = droppablePitchers
-      .filter(d => d.overallValue < avail.overallValue + avail.waiverEdge - 10)
+      .filter(d => {
+        const upgradeValue = avail.overallValue + avail.waiverEdge - d.overallValue;
+        return upgradeValue > 10;  // Minimum 10-point upgrade
+      })
       .sort((a, b) => a.overallValue - b.overallValue)[0];
 
     if (bestDrop) {
       const upgradeValue = avail.overallValue + avail.waiverEdge - bestDrop.overallValue;
-
+      
       recommendations.push({
         rank: 0,
         player: avail.player,
@@ -483,19 +401,69 @@ function generateSwapRecommendationsDomainAware(
         dropCandidate: bestDrop.player,
         expectedValue: upgradeValue,
         confidence: mapConfidence(avail.score.confidence),
-        reasoning: `Upgrade ${bestDrop.overallValue} → ${avail.overallValue} with +${avail.waiverEdge} edge. ${generatePitcherAddReasoning(avail)}`,
+        reasoning: generatePitcherReasoning(avail, bestDrop, teamState),
+        urgency: determineUrgency(avail, teamState),
+      });
+    } else if (teamState.currentLineup.benchAssignments.length < teamState.lineupConfig.benchSlots) {
+      // Add recommendation if bench space available
+      recommendations.push({
+        rank: 0,
+        player: avail.player,
+        action: 'add',
+        expectedValue: avail.overallValue + avail.waiverEdge,
+        confidence: mapConfidence(avail.score.confidence),
+        reasoning: generatePitcherAddReasoning(avail, teamState),
         urgency: avail.role.isCloser ? 'critical' : 'high',
       });
     }
   }
 
-  // Hitter swaps (lower priority)
-  const droppableHitters = rosterHitters.filter(h => h.overallValue < 45);
-  const topAvailHitters = availHitters.filter(h => h.overallValue >= 55);
+  return recommendations;
+}
 
-  for (const avail of topAvailHitters.slice(0, 3)) {
+function generateHitterRecommendations(
+  rosterHitters: ScoredHitter[],
+  availableHitters: ScoredHitter[],
+  teamState: TeamState
+): WaiverRecommendation[] {
+  const recommendations: WaiverRecommendation[] = [];
+
+  // Find position needs from roster
+  const positionCounts = new Map<string, number>();
+  for (const h of rosterHitters) {
+    for (const pos of h.player.position) {
+      positionCounts.set(pos, (positionCounts.get(pos) || 0) + 1);
+    }
+  }
+
+  // Identify thin positions
+  const thinPositions: string[] = [];
+  for (const slot of teamState.lineupConfig.slots) {
+    if (slot.domain === 'hitting') {
+      const eligibleCount = slot.eligiblePositions.reduce((sum, pos) => 
+        sum + (positionCounts.get(pos) || 0), 0
+      );
+      if (eligibleCount < 2) {
+        thinPositions.push(...slot.eligiblePositions);
+      }
+    }
+  }
+
+  // Top available hitters
+  const topHitters = availableHitters
+    .filter(h => h.overallValue >= 55)
+    .sort((a, b) => b.overallValue - a.overallValue)
+    .slice(0, 5);
+
+  // Find droppable hitters
+  const droppableHitters = rosterHitters.filter(h => h.overallValue < 45);
+
+  for (const avail of topHitters) {
+    // Check if fills a need
+    const fillsNeed = avail.player.position.some(p => thinPositions.includes(p));
+    
     const bestDrop = droppableHitters
-      .filter(d => d.overallValue < avail.overallValue - 10)
+      .filter(d => avail.overallValue - d.overallValue > 10)
       .sort((a, b) => a.overallValue - b.overallValue)[0];
 
     if (bestDrop) {
@@ -506,8 +474,18 @@ function generateSwapRecommendationsDomainAware(
         dropCandidate: bestDrop.player,
         expectedValue: avail.overallValue - bestDrop.overallValue,
         confidence: mapConfidence(avail.score.confidence),
-        reasoning: `Hitter upgrade ${bestDrop.overallValue} → ${avail.overallValue}`,
-        urgency: 'medium',
+        reasoning: generateHitterReasoning(avail, bestDrop, fillsNeed, thinPositions),
+        urgency: fillsNeed ? 'high' : 'medium',
+      });
+    } else if (teamState.currentLineup.benchAssignments.length < teamState.lineupConfig.benchSlots) {
+      recommendations.push({
+        rank: 0,
+        player: avail.player,
+        action: 'add',
+        expectedValue: avail.overallValue,
+        confidence: mapConfidence(avail.score.confidence),
+        reasoning: generateHitterAddReasoning(avail, fillsNeed),
+        urgency: fillsNeed ? 'high' : 'medium',
       });
     }
   }
@@ -516,78 +494,90 @@ function generateSwapRecommendationsDomainAware(
 }
 
 // ============================================================================
-// Reasoning Functions
+// Reasoning Functions (Team-Aware)
 // ============================================================================
 
-function generatePitcherAddReasoning(pitcher: ScoredPitcher): string {
+function generatePitcherReasoning(
+  avail: ScoredPitcher,
+  drop: ScoredPitcher,
+  teamState: TeamState
+): string {
   const reasons: string[] = [];
-  const score = pitcher.score;
+  
+  const upgradeValue = avail.overallValue + avail.waiverEdge - drop.overallValue;
+  reasons.push(`${drop.overallValue} → ${avail.overallValue} (+${avail.waiverEdge} edge = ${upgradeValue} net)`);
 
-  // Role-based reasons
-  if (score.role.isCloser) {
+  if (avail.role.isCloser) {
     reasons.push('Closer role - save opportunities');
-  } else if (score.role.holdsEligible && score.components.stuff >= 65) {
-    reasons.push('Setup role with strikeout upside for holds');
-  } else if (score.role.startProbabilityNext7 > 0.7) {
-    reasons.push(`Streaming SP with ${score.role.startProbabilityNext7 > 0.9 ? 'two' : 'one'} start(s) this week`);
+  } else if (avail.role.holdsEligible && avail.score.components.stuff >= 65) {
+    reasons.push('Setup role with strikeout upside');
+  } else if (avail.role.startProbabilityNext7 > 0.7) {
+    reasons.push(`Streaming SP with ${avail.role.startProbabilityNext7 > 0.9 ? 'two' : 'one'} start(s)`);
   }
 
-  // Skill-based reasons
-  if (score.components.stuff >= 70) reasons.push('Dominant stuff');
-  if (score.components.command >= 70) reasons.push('Elite control');
-  if (score.components.workload >= 70) reasons.push('Workhorse workload');
-
-  // Opportunity reasons
-  if (pitcher.waiverEdge >= 20) {
-    reasons.push(`High waiver edge (+${pitcher.waiverEdge}) - cheat code candidate`);
+  if (avail.score.components.stuff >= 70) reasons.push('Dominant stuff');
+  if (avail.waiverEdge >= 20) reasons.push(`High waiver edge (+${avail.waiverEdge})`);
+  
+  // Team context
+  if (drop.overallValue < 40) {
+    reasons.push(`Frees up roster spot from ${drop.player.name} (${drop.overallValue})`);
   }
 
-  if (score.components.stuff >= 70 && score.components.results <= 45) {
-    reasons.push('Buy low: dominant skills, poor results');
-  }
-
-  if (reasons.length === 0) {
-    reasons.push(`Solid pitcher value (${score.overallValue})`);
-  }
-
-  return reasons.join(', ');
+  return reasons.join('. ');
 }
 
-function generateHitterAddReasoning(hitter: ScoredHitter): string {
-  const score = hitter.score;
+function generatePitcherAddReasoning(
+  avail: ScoredPitcher,
+  teamState: TeamState
+): string {
   const reasons: string[] = [];
 
-  if (score.components.power >= 70) reasons.push('Power threat');
-  if (score.components.speed >= 70) reasons.push('Speed asset');
-  if (score.components.hitting >= 70) reasons.push('Strong hitter');
-  if (score.components.opportunity >= 75) reasons.push('Full-time role');
-  if (score.components.consistency >= 65) reasons.push('Reliable');
+  if (avail.role.isCloser) reasons.push('Closer role - immediate impact');
+  if (avail.role.startProbabilityNext7 > 0.7) reasons.push('Two-start week');
+  if (avail.score.components.stuff >= 70) reasons.push('Dominant stuff');
+  if (avail.waiverEdge >= 20) reasons.push(`High waiver edge (+${avail.waiverEdge})`);
 
-  if (reasons.length === 0) {
-    reasons.push(`Solid hitter value (${score.overallValue})`);
+  // Bench context
+  const benchSpace = teamState.lineupConfig.benchSlots - teamState.currentLineup.benchAssignments.length;
+  if (benchSpace > 0) {
+    reasons.push(`${benchSpace} bench spot(s) available`);
   }
 
-  return reasons.join(', ');
+  return reasons.join('. ');
 }
 
-function generatePitcherDropReasoning(pitcher: ScoredPitcher): string {
-  if (pitcher.role.currentRole === 'RP' && !pitcher.role.isCloser && pitcher.overallValue < 40) {
-    return 'Middle reliever without holds value or role upside';
+function generateHitterReasoning(
+  avail: ScoredHitter,
+  drop: ScoredHitter,
+  fillsNeed: boolean,
+  thinPositions: string[]
+): string {
+  const reasons: string[] = [];
+  reasons.push(`${drop.overallValue} → ${avail.overallValue} (${avail.overallValue - drop.overallValue} point upgrade)`);
+
+  if (fillsNeed && thinPositions.length > 0) {
+    reasons.push(`Fills need at ${thinPositions.slice(0, 3).join('/')}`);
   }
-  if (pitcher.score.components.consistency < 35) {
-    return 'High blow-up risk - not worth roster spot';
-  }
-  return `Low value pitcher (${pitcher.overallValue}) without clear role`;
+
+  if (avail.score.components.power >= 70) reasons.push('Power threat');
+  if (avail.score.components.speed >= 70) reasons.push('Speed asset');
+  if (avail.score.components.opportunity >= 75) reasons.push('Full-time role');
+
+  return reasons.join('. ');
 }
 
-function generateHitterDropReasoning(hitter: ScoredHitter): string {
-  if (hitter.score.components.opportunity < 30) {
-    return 'Limited playing time - not fantasy relevant';
-  }
-  if (hitter.score.reliability.sampleSize === 'insufficient') {
-    return 'Insufficient data to justify roster spot';
-  }
-  return `Low value hitter (${hitter.overallValue})`;
+function generateHitterAddReasoning(
+  avail: ScoredHitter,
+  fillsNeed: boolean
+): string {
+  const reasons: string[] = [];
+
+  if (fillsNeed) reasons.push('Fills position need');
+  if (avail.score.components.power >= 70) reasons.push('Power threat');
+  if (avail.score.components.speed >= 70) reasons.push('Speed asset');
+  if (avail.score.components.consistency >= 65) reasons.push('Reliable production');
+
+  return reasons.join('. ');
 }
 
 // ============================================================================
@@ -602,22 +592,32 @@ function mapConfidence(confidence: number): ConfidenceLevel {
   return 'very_low';
 }
 
+function determineUrgency(
+  pitcher: ScoredPitcher,
+  teamState: TeamState
+): 'low' | 'medium' | 'high' | 'critical' {
+  // Critical: New closer, FAAB running low, or roster gap
+  if (pitcher.role.isCloser) return 'critical';
+  
+  const budgetRemaining = teamState.waiverState.budgetRemaining;
+  const budgetTotal = teamState.waiverState.budgetTotal;
+  if (budgetRemaining < budgetTotal * 0.1 && pitcher.waiverEdge >= 20) {
+    return 'high';  // Spend remaining budget on high-edge plays
+  }
+
+  // High: Two-start SP or high-edge streaming option
+  if (pitcher.role.startProbabilityNext7 > 0.9 || pitcher.waiverEdge >= 25) {
+    return 'high';
+  }
+
+  // Medium: Solid streaming option
+  if (pitcher.waiverEdge >= 15) return 'medium';
+
+  return 'low';
+}
+
 // ============================================================================
 // Legacy Compatibility
 // ============================================================================
 
-/**
- * Legacy waiver assembly for backward compatibility.
- * Only works with hitters.
- * @deprecated Use assembleWaiverDecisionsDomainAware for full waiver assembly
- */
-export function assembleWaiverDecisions(input: {
-  request: WaiverRecommendationRequest;
-  playerScores: Map<string, PlayerScore>;
-}): WaiverAssemblyResult {
-  return assembleWaiverDecisionsDomainAware({
-    request: input.request,
-    hitterScores: input.playerScores,
-    pitcherScores: new Map(),
-  });
-}
+export { assembleWaiverDecisionsFromTeamState as assembleWaiverDecisionsDomainAware };

@@ -1,20 +1,27 @@
 /**
- * Lineup Decision Assembly - DOMAIN AWARE
+ * Lineup Decision Assembly - TEAM STATE AWARE
  *
- * CRITICAL PRINCIPLE: Hitters and Pitchers are SEPARATE DOMAINS.
- * They share identities (player_id, mlbamId) but have DIFFERENT scoring.
- * Never compare hitters and pitchers directly.
- *
- * Assembly Strategy:
- * 1. Separate roster slots by domain (hitting vs pitching)
- * 2. Optimize hitters within hitting slots
- * 3. Optimize pitchers within pitching slots
- * 4. Combine results - no cross-domain comparison
+ * CRITICAL PRINCIPLE: All decisions are pure functions of TeamState.
+ * 
+ * Decision = f(TeamState, PlayerScores, MonteCarloData)
+ * 
+ * This assembly:
+ * 1. Filters to roster players only (from TeamState)
+ * 2. Respects positional eligibility (from TeamState roster)
+ * 3. Respects locked players (from TeamState lineup)
+ * 4. Uses slot configuration (from TeamState lineupConfig)
+ * 5. Separates hitters and pitchers by domain (never compare directly)
+ * 
+ * What does NOT change:
+ * - Scoring logic (compute.ts)
+ * - Monte Carlo logic (monte-carlo.ts)
+ * - Feature definitions (derived.ts)
  */
 
-import type { UUID, ISO8601Timestamp } from '@cbb/core';
-import type {
-  LineupOptimizationRequest,
+import type { 
+  UUID, 
+  ISO8601Timestamp,
+  TeamState,
   LineupOptimizationResult,
   LineupSlot,
   AlternativeLineup,
@@ -25,15 +32,24 @@ import type {
 } from '@cbb/core';
 import type { PlayerScore } from '../scoring/index.js';
 import type { PitcherScore } from '../pitchers/index.js';
+import { 
+  isPlayerOnRoster, 
+  isPlayerLocked, 
+  getAvailableBenchPlayers,
+  getEligibleSlotsForPlayer,
+  getOpenSlots,
+} from '@cbb/core';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-export interface DomainAwareAssemblyInput {
-  request: LineupOptimizationRequest;
+export interface TeamStateLineupInput {
+  teamState: TeamState;                        // Canonical team representation
   hitterScores: Map<string, PlayerScore>;     // mlbamId -> hitter score
   pitcherScores: Map<string, PitcherScore>;   // mlbamId -> pitcher score
+  manualLocks?: Set<UUID>;                    // Additional manual locks
+  excludedPlayerIds?: Set<UUID>;              // Players to exclude (injuries, etc.)
 }
 
 export interface AssemblyResult {
@@ -43,57 +59,30 @@ export interface AssemblyResult {
   traceId: string;
 }
 
-// Domain discriminator
 export type PerformanceDomain = 'hitting' | 'pitching';
-
-export interface DomainSlot {
-  slot: string;
-  domain: PerformanceDomain;
-  eligiblePositions: string[];
-}
 
 // ============================================================================
 // Domain Classification
 // ============================================================================
 
-/**
- * Determine the domain for a roster slot.
- * Pitcher slots: SP, RP, P, CL (and variations)
- * Hitting slots: Everything else
- */
-function getSlotDomain(slot: string): PerformanceDomain {
-  const pitcherSlots = ['SP', 'RP', 'P', 'CL', 'SP/RP', 'PITCHER'];
-  const upperSlot = slot.toUpperCase();
+function getSlotDomain(slotId: string): PerformanceDomain {
+  const pitcherSlots = ['SP', 'RP', 'P', 'CL'];
+  const upperSlot = slotId.toUpperCase();
   
-  // Check if slot is a pitcher slot
   if (pitcherSlots.some(ps => upperSlot.includes(ps))) {
     return 'pitching';
   }
-  
   return 'hitting';
 }
 
-/**
- * Check if a player is eligible for a slot based on domain.
- * A hitter cannot fill a pitcher slot and vice versa.
- */
-function isEligibleForDomain(
-  playerPositions: string[],
-  slotDomain: PerformanceDomain
-): boolean {
-  const hasPitcherPosition = playerPositions.some(p => 
+function isPitcher(positions: string[]): boolean {
+  return positions.some(p => 
     ['SP', 'RP', 'P', 'CL'].includes(p.toUpperCase())
   );
-  
-  if (slotDomain === 'pitching') {
-    return hasPitcherPosition;
-  } else {
-    return !hasPitcherPosition;
-  }
 }
 
 // ============================================================================
-// Hitter Assembly
+// Hitter Assembly (Team State Aware)
 // ============================================================================
 
 interface HitterAssemblyContext {
@@ -102,79 +91,71 @@ interface HitterAssemblyContext {
     score: PlayerScore;
     overallValue: number;
     confidence: number;
+    eligibleSlots: string[];  // From TeamState
   }>;
-  lockedIn: Set<UUID>;
-  lockedOut: Set<UUID>;
-  lockedSlots: Set<string>;
+  lockedPlayerIds: Set<UUID>;
+  excludedPlayerIds: Set<UUID>;
 }
 
 function assembleHitters(
-  hittingSlots: Array<{ slot: string; maxCount: number; eligiblePositions: string[] }>,
-  context: HitterAssemblyContext,
-  request: LineupOptimizationRequest
-): { slots: LineupSlot[]; keyDecisions: KeyDecisionPoint[] } {
+  hittingSlots: Array<{ slotId: string; eligiblePositions: string[] }>,
+  context: HitterAssemblyContext
+): { slots: LineupSlot[]; keyDecisions: KeyDecisionPoint[]; usedPlayerIds: Set<UUID> } {
   const lineup: LineupSlot[] = [];
   const keyDecisions: KeyDecisionPoint[] = [];
   const usedPlayers = new Set<UUID>();
 
-  const { scoredHitters, lockedIn, lockedOut, lockedSlots } = context;
+  const { scoredHitters, lockedPlayerIds, excludedPlayerIds } = context;
 
-  // Sort hitters by overall value
-  const sortedHitters = [...scoredHitters]
-    .filter(h => !lockedOut.has(h.player.id))
-    .sort((a, b) => b.overallValue - a.overallValue);
+  // Filter to available hitters (not locked, not excluded)
+  const availableHitters = scoredHitters.filter(
+    h => !lockedPlayerIds.has(h.player.id) && !excludedPlayerIds.has(h.player.id)
+  );
 
-  for (const position of hittingSlots) {
-    for (let i = 0; i < position.maxCount; i++) {
-      const slotId = `${position.slot}_${i}`;
-      
-      // Skip locked slots
-      if (lockedSlots.has(slotId)) continue;
+  // Sort by value
+  const sortedHitters = [...availableHitters].sort(
+    (a, b) => b.overallValue - a.overallValue
+  );
 
-      // Find eligible hitters for this slot
-      const eligible = sortedHitters.filter(
-        h =>
-          !usedPlayers.has(h.player.id) &&
-          (h.player.position.some((pos) =
-            position.eligiblePositions.includes(pos)) ||
-            position.eligiblePositions.includes('UTIL'))
-      );
+  for (const slotConfig of hittingSlots) {
+    // Find eligible hitters for this slot
+    const eligible = sortedHitters.filter(
+      h =>
+        !usedPlayers.has(h.player.id) &&
+        h.eligibleSlots.includes(slotConfig.slotId)
+    );
 
-      // Prioritize locked-in players
-      const lockedInPlayer = eligible.find((h) => lockedIn.has(h.player.id));
-      const selected = lockedInPlayer || eligible[0];
+    if (eligible.length > 0) {
+      const selected = eligible[0];
+      usedPlayers.add(selected.player.id);
 
-      if (selected) {
-        usedPlayers.add(selected.player.id);
+      const slot: LineupSlot = {
+        position: slotConfig.slotId,
+        player: selected.player,
+        projectedPoints: calculateHitterProjectedPoints(selected.score),
+        confidence: mapConfidence(selected.confidence),
+        factors: generateHitterFactors(selected.score),
+      };
 
-        const slot: LineupSlot = {
-          position: position.slot,
-          player: selected.player,
-          projectedPoints: calculateHitterProjectedPoints(selected.score),
-          confidence: mapConfidence(selected.confidence),
-          factors: generateHitterFactors(selected.score),
-        };
+      lineup.push(slot);
 
-        lineup.push(slot);
-
-        // Record key decision if alternatives exist
-        if (eligible.length > 1) {
-          keyDecisions.push({
-            position: position.slot,
-            chosenPlayer: selected.player,
-            alternativesConsidered: eligible.slice(1, 4).map((h) => h.player),
-            whyChosen: `Hitter value ${selected.overallValue} vs ${eligible[1]?.overallValue || 0}`,
-          });
-        }
+      // Record key decision
+      if (eligible.length > 1) {
+        keyDecisions.push({
+          position: slotConfig.slotId,
+          chosenPlayer: selected.player,
+          alternativesConsidered: eligible.slice(1, 4).map(h => h.player),
+          whyChosen: `Value ${selected.overallValue} vs ${eligible[1]?.overallValue || 0}`,
+        });
       }
     }
   }
 
-  return { slots: lineup, keyDecisions };
+  return { slots: lineup, keyDecisions, usedPlayerIds: usedPlayers };
 }
 
 // ============================================================================
-// Pitcher Assembly
+// Pitcher Assembly (Team State Aware)
 // ============================================================================
 
 interface PitcherAssemblyContext {
@@ -184,210 +165,230 @@ interface PitcherAssemblyContext {
     overallValue: number;
     confidence: number;
     role: PitcherScore['role'];
+    eligibleSlots: string[];
   }>;
-  lockedIn: Set<UUID>;
-  lockedOut: Set<UUID>;
-  lockedSlots: Set<string>;
+  lockedPlayerIds: Set<UUID>;
+  excludedPlayerIds: Set<UUID>;
 }
 
 function assemblePitchers(
-  pitcherSlots: Array<{ slot: string; maxCount: number; eligiblePositions: string[] }>,
-  context: PitcherAssemblyContext,
-  request: LineupOptimizationRequest
-): { slots: LineupSlot[]; keyDecisions: KeyDecisionPoint[] } {
+  pitcherSlots: Array<{ slotId: string; eligiblePositions: string[] }>,
+  context: PitcherAssemblyContext
+): { slots: LineupSlot[]; keyDecisions: KeyDecisionPoint[]; usedPlayerIds: Set<UUID> } {
   const lineup: LineupSlot[] = [];
   const keyDecisions: KeyDecisionPoint[] = [];
   const usedPlayers = new Set<UUID>();
 
-  const { scoredPitchers, lockedIn, lockedOut, lockedSlots } = context;
+  const { scoredPitchers, lockedPlayerIds, excludedPlayerIds } = context;
 
-  // Sort pitchers by role priority, then value
-  // Closers and starters prioritized differently based on slot
-  const sortedPitchers = [...scoredPitchers]
-    .filter(p => !lockedOut.has(p.player.id))
-    .sort((a, b) => {
-      // Role priority for fantasy
-      const rolePriority = { CL: 4, SP: 3, SWING: 2, RP: 1 };
-      const aPriority = rolePriority[a.role.currentRole] || 0;
-      const bPriority = rolePriority[b.role.currentRole] || 0;
-      
-      if (aPriority !== bPriority) return bPriority - aPriority;
-      return b.overallValue - a.overallValue;
-    });
+  // Filter to available pitchers
+  const availablePitchers = scoredPitchers.filter(
+    p => !lockedPlayerIds.has(p.player.id) && !excludedPlayerIds.has(p.player.id)
+  );
 
-  for (const position of pitcherSlots) {
-    for (let i = 0; i < position.maxCount; i++) {
-      const slotId = `${position.slot}_${i}`;
-      
-      // Skip locked slots
-      if (lockedSlots.has(slotId)) continue;
+  // Sort by role priority, then value
+  const sortedPitchers = [...availablePitchers].sort((a, b) => {
+    const rolePriority = { CL: 4, SP: 3, SWING: 2, RP: 1 };
+    const aPriority = rolePriority[a.role.currentRole] || 0;
+    const bPriority = rolePriority[b.role.currentRole] || 0;
+    if (aPriority !== bPriority) return bPriority - aPriority;
+    return b.overallValue - a.overallValue;
+  });
 
-      // Determine role preference for this slot
-      const slotUpper = position.slot.toUpperCase();
-      const preferClosers = slotUpper.includes('CL');
-      const preferStarters = slotUpper.includes('SP') && !slotUpper.includes('RP');
+  for (const slotConfig of pitcherSlots) {
+    const slotDomain = getSlotDomain(slotConfig.slotId);
+    const preferClosers = slotConfig.slotId.toUpperCase().includes('CL');
+    const preferStarters = slotConfig.slotId.toUpperCase().includes('SP');
 
-      // Find eligible pitchers for this slot
-      let eligible = sortedPitchers.filter(
-        p =>
-          !usedPlayers.has(p.player.id) &&
-          p.player.position.some((pos) =
-            position.eligiblePositions.includes(pos))
+    // Find eligible pitchers
+    let eligible = sortedPitchers.filter(
+      p =>
+        !usedPlayers.has(p.player.id) &&
+        p.eligibleSlots.includes(slotConfig.slotId)
+    );
+
+    // Apply role preferences
+    if (preferClosers) {
+      const closers = eligible.filter(p => p.role.isCloser);
+      const others = eligible.filter(p => !p.role.isCloser);
+      eligible = [...closers, ...others];
+    } else if (preferStarters) {
+      const withStarts = eligible.filter(
+        p => p.role.currentRole === 'SP' && p.role.startProbabilityNext7 > 0.5
       );
+      const otherStarters = eligible.filter(
+        p => p.role.currentRole === 'SP' && p.role.startProbabilityNext7 <= 0.5
+      );
+      const others = eligible.filter(p => p.role.currentRole !== 'SP');
+      eligible = [...withStarts, ...otherStarters, ...others];
+    }
 
-      // Apply role preferences
-      if (preferClosers) {
-        // Prioritize closers, then any high-value pitcher
-        const closers = eligible.filter(p => p.role.isCloser);
-        const others = eligible.filter(p => !p.role.isCloser);
-        eligible = [...closers, ...others];
-      } else if (preferStarters) {
-        // Prioritize starters with scheduled starts
-        const startersWithStarts = eligible.filter(
-          p => p.role.currentRole === 'SP' && p.role.startProbabilityNext7 > 0.5
-        );
-        const otherStarters = eligible.filter(
-          p => p.role.currentRole === 'SP' && p.role.startProbabilityNext7 <= 0.5
-        );
-        const others = eligible.filter(p => p.role.currentRole !== 'SP');
-        eligible = [...startersWithStarts, ...otherStarters, ...others];
-      }
+    if (eligible.length > 0) {
+      const selected = eligible[0];
+      usedPlayers.add(selected.player.id);
 
-      // Prioritize locked-in players
-      const lockedInPlayer = eligible.find((p) => lockedIn.has(p.player.id));
-      const selected = lockedInPlayer || eligible[0];
+      const slot: LineupSlot = {
+        position: slotConfig.slotId,
+        player: selected.player,
+        projectedPoints: calculatePitcherProjectedPoints(selected.score),
+        confidence: mapConfidence(selected.confidence),
+        factors: generatePitcherFactors(selected.score),
+      };
 
-      if (selected) {
-        usedPlayers.add(selected.player.id);
+      lineup.push(slot);
 
-        const slot: LineupSlot = {
-          position: position.slot,
-          player: selected.player,
-          projectedPoints: calculatePitcherProjectedPoints(selected.score),
-          confidence: mapConfidence(selected.confidence),
-          factors: generatePitcherFactors(selected.score),
-        };
-
-        lineup.push(slot);
-
-        // Record key decision
-        if (eligible.length > 1) {
-          keyDecisions.push({
-            position: position.slot,
-            chosenPlayer: selected.player,
-            alternativesConsidered: eligible.slice(1, 4).map((p) => p.player),
-            whyChosen: `Pitcher ${selected.role.currentRole} with value ${selected.overallValue}`,
-          });
-        }
+      if (eligible.length > 1) {
+        keyDecisions.push({
+          position: slotConfig.slotId,
+          chosenPlayer: selected.player,
+          alternativesConsidered: eligible.slice(1, 4).map(p => p.player),
+          whyChosen: `${selected.role.currentRole} with value ${selected.overallValue}`,
+        });
       }
     }
   }
 
-  return { slots: lineup, keyDecisions };
+  return { slots: lineup, keyDecisions, usedPlayerIds: usedPlayers };
 }
 
 // ============================================================================
-// Main Assembly Function
+// Main Assembly Function (Team State Aware)
 // ============================================================================
 
-/**
- * Domain-aware lineup assembly.
- * NEVER compares hitters to pitchers directly.
- */
-export function assembleLineupDomainAware(input: DomainAwareAssemblyInput): AssemblyResult {
-  const { request, hitterScores, pitcherScores } = input;
+export function assembleLineupFromTeamState(input: TeamStateLineupInput): AssemblyResult {
+  const { teamState, hitterScores, pitcherScores, manualLocks, excludedPlayerIds } = input;
   const errors: string[] = [];
   const traceId = crypto.randomUUID();
 
   try {
-    // Apply manual overrides
-    const lockedIn = new Set<UUID>(request.rosterConstraints.mustInclude || []);
-    const lockedOut = new Set<UUID>(request.rosterConstraints.mustExclude || []);
-    const lockedSlots = new Set<string>(request.rosterConstraints.lockedSlots || []);
-
-    for (const override of request.manualOverrides || []) {
-      if (override.action === 'lock_in') lockedIn.add(override.playerId);
-      else if (override.action === 'lock_out') lockedOut.add(override.playerId);
+    // Build locked player set from TeamState
+    const lockedPlayerIds = new Set<UUID>();
+    for (const locked of teamState.currentLineup.lockedSlots) {
+      lockedPlayerIds.add(locked.playerId);
+    }
+    for (const locked of manualLocks || []) {
+      lockedPlayerIds.add(locked);
     }
 
-    // Separate slots by domain
-    const hittingSlots: Array<{ slot: string; maxCount: number; eligiblePositions: string[] }> = [];
-    const pitcherSlots: Array<{ slot: string; maxCount: number; eligiblePositions: string[] }> = [];
-
-    for (const pos of request.leagueConfig.rosterPositions) {
-      const domain = getSlotDomain(pos.slot);
-      if (domain === 'pitching') {
-        pitcherSlots.push(pos);
-      } else {
-        hittingSlots.push(pos);
+    // Build excluded player set
+    const exclusions = new Set<UUID>(excludedPlayerIds || []);
+    
+    // Exclude injured players automatically
+    for (const player of teamState.roster.players) {
+      if (player.isInjured && player.injuryStatus !== 'day_to_day') {
+        exclusions.add(player.playerId);
       }
     }
 
-    // Prepare scored hitters
-    const scoredHitters = request.availablePlayers.players
-      .filter(p => p.isAvailable && isEligibleForDomain(p.player.position, 'hitting'))
-      .map(p => {
-        const score = hitterScores.get(p.player.mlbamId);
-        return {
-          player: p.player,
-          score,
-          overallValue: score?.overallValue ?? 0,
-          confidence: score?.confidence ?? 0,
-        };
-      })
-      .filter(h => h.score !== undefined);
+    // Prepare scored players from ROSTER ONLY (TeamState boundary)
+    const rosterHitters: HitterAssemblyContext['scoredHitters'] = [];
+    const rosterPitchers: PitcherAssemblyContext['scoredPitchers'] = [];
 
-    // Prepare scored pitchers
-    const scoredPitchers = request.availablePlayers.players
-      .filter(p => p.isAvailable && isEligibleForDomain(p.player.position, 'pitching'))
-      .map(p => {
-        const score = pitcherScores.get(p.player.mlbamId);
-        return {
-          player: p.player,
-          score,
-          overallValue: score?.overallValue ?? 0,
-          confidence: score?.confidence ?? 0,
-          role: score?.role ?? { currentRole: 'RP', isCloser: false, holdsEligible: false, expectedInningsPerWeek: 3, startProbabilityNext7: 0 },
-        };
-      })
-      .filter(p => p.score !== undefined);
+    for (const rosterPlayer of teamState.roster.players) {
+      if (exclusions.has(rosterPlayer.playerId)) continue;
 
-    if (scoredHitters.length === 0 && hittingSlots.length > 0) {
-      errors.push('No hitters with computed scores available');
+      // Get eligible slots from TeamState
+      const eligibleSlots = getEligibleSlotsForPlayer(teamState, rosterPlayer.playerId);
+
+      if (isPitcher(rosterPlayer.positions)) {
+        const score = pitcherScores.get(rosterPlayer.mlbamId);
+        if (score) {
+          rosterPitchers.push({
+            player: {
+              id: rosterPlayer.playerId,
+              mlbamId: rosterPlayer.mlbamId,
+              name: rosterPlayer.name,
+              position: rosterPlayer.positions,
+            },
+            score,
+            overallValue: score.overallValue,
+            confidence: score.confidence,
+            role: score.role,
+            eligibleSlots,
+          });
+        }
+      } else {
+        const score = hitterScores.get(rosterPlayer.mlbamId);
+        if (score) {
+          rosterHitters.push({
+            player: {
+              id: rosterPlayer.playerId,
+              mlbamId: rosterPlayer.mlbamId,
+              name: rosterPlayer.name,
+              position: rosterPlayer.positions,
+            },
+            score,
+            overallValue: score.overallValue,
+            confidence: score.confidence,
+            eligibleSlots,
+          });
+        }
+      }
     }
-    if (scoredPitchers.length === 0 && pitcherSlots.length > 0) {
-      errors.push('No pitchers with computed scores available');
+
+    // Separate slots by domain from TeamState
+    const hittingSlots: Array<{ slotId: string; eligiblePositions: string[] }> = [];
+    const pitcherSlots: Array<{ slotId: string; eligiblePositions: string[] }> = [];
+
+    for (const slot of teamState.lineupConfig.slots) {
+      if (slot.domain === 'hitting' || slot.domain === 'utility') {
+        hittingSlots.push({ slotId: slot.slotId, eligiblePositions: slot.eligiblePositions });
+      } else if (slot.domain === 'pitching') {
+        pitcherSlots.push({ slotId: slot.slotId, eligiblePositions: slot.eligiblePositions });
+      }
+      // Bench slots are handled separately
+    }
+
+    if (rosterHitters.length === 0 && hittingSlots.length > 0) {
+      errors.push('No hitters with computed scores on roster');
+    }
+    if (rosterPitchers.length === 0 && pitcherSlots.length > 0) {
+      errors.push('No pitchers with computed scores on roster');
     }
 
     // Assemble hitters and pitchers SEPARATELY
-    const hitterResult = assembleHitters(hittingSlots, { scoredHitters, lockedIn, lockedOut, lockedSlots }, request);
-    const pitcherResult = assemblePitchers(pitcherSlots, { scoredPitchers, lockedIn, lockedOut, lockedSlots }, request);
+    const hitterResult = assembleHitters(hittingSlots, {
+      scoredHitters: rosterHitters,
+      lockedPlayerIds,
+      excludedPlayerIds: exclusions,
+    });
 
-    // Combine results (no cross-domain comparison)
+    const pitcherResult = assemblePitchers(pitcherSlots, {
+      scoredPitchers: rosterPitchers,
+      lockedPlayerIds,
+      excludedPlayerIds: exclusions,
+    });
+
+    // Combine results
     const allSlots = [...hitterResult.slots, ...pitcherResult.slots];
     const allKeyDecisions = [...hitterResult.keyDecisions, ...pitcherResult.keyDecisions];
 
     // Calculate expected points
     const expectedPoints = allSlots.reduce((sum, slot) => sum + slot.projectedPoints, 0);
 
-    // Generate alternatives (within-domain swaps only)
-    const alternativeLineups = generateDomainAwareAlternatives(
+    // Generate alternatives
+    const alternativeLineups = generateAlternatives(
       allSlots,
-      scoredHitters,
-      scoredPitchers,
-      request
+      rosterHitters,
+      rosterPitchers,
+      hittingSlots,
+      pitcherSlots
     );
 
-    // Build explanation
-    const explanation: LineupExplanation = {
-      summary: generateDomainAwareSummary(allSlots, expectedPoints, hitterResult.slots.length, pitcherResult.slots.length),
-      keyDecisions: allKeyDecisions.slice(0, 5),
-      riskFactors: generateDomainAwareRiskFactors(allSlots, scoredHitters, scoredPitchers),
-      opportunities: generateDomainAwareOpportunities(allSlots, scoredHitters, scoredPitchers),
-    };
+    // Build team-aware explanation
+    const explanation = generateTeamAwareExplanation(
+      allSlots,
+      expectedPoints,
+      hitterResult.slots.length,
+      pitcherResult.slots.length,
+      teamState,
+      lockedPlayerIds,
+      rosterHitters,
+      rosterPitchers
+    );
 
     const result: LineupOptimizationResult = {
-      requestId: request.id,
+      requestId: traceId,  // Generate fresh ID since we're not using request
       generatedAt: new Date().toISOString() as ISO8601Timestamp,
       optimalLineup: allSlots,
       expectedPoints,
@@ -413,7 +414,7 @@ export function assembleLineupDomainAware(input: DomainAwareAssemblyInput): Asse
 }
 
 // ============================================================================
-// Projection & Factor Functions
+// Helper Functions (Unchanged from domain-aware version)
 // ============================================================================
 
 function calculateHitterProjectedPoints(score: PlayerScore): number {
@@ -423,11 +424,9 @@ function calculateHitterProjectedPoints(score: PlayerScore): number {
 }
 
 function calculatePitcherProjectedPoints(score: PitcherScore): number {
-  // Pitchers project differently based on role
   const roleMultiplier = score.role.currentRole === 'SP' ? 1.0 :
                          score.role.isCloser ? 0.8 :
                          score.role.holdsEligible ? 0.6 : 0.5;
-  
   const basePoints = (score.overallValue / 100) * 30 * roleMultiplier;
   const confidenceAdjustment = score.confidence * 5;
   return Math.round((basePoints + confidenceAdjustment) * 10) / 10;
@@ -460,30 +459,25 @@ function generatePitcherFactors(score: PitcherScore): string[] {
   if (score.components.command >= 70) factors.push('elite_command');
   if (score.components.stuff >= 70) factors.push('dominant_stuff');
   if (score.components.results >= 70) factors.push('excellent_results');
-  if (score.components.workload >= 70) factors.push('workhorse');
   if (score.reliability.sampleSize === 'small') factors.push('small_sample');
   return factors;
 }
 
-// ============================================================================
-// Summary & Explanation Functions
-// ============================================================================
-
-function generateDomainAwareAlternatives(
+function generateAlternatives(
   lineup: LineupSlot[],
-  scoredHitters: Array<{ player: PlayerIdentity; score: PlayerScore }>,
-  scoredPitchers: Array<{ player: PlayerIdentity; score: PitcherScore }>,
-  request: LineupOptimizationRequest
+  rosterHitters: Array<{ player: PlayerIdentity; score: PlayerScore }>,
+  rosterPitchers: Array<{ player: PlayerIdentity; score: PitcherScore }>,
+  hittingSlots: Array<{ slotId: string }>,
+  pitcherSlots: Array<{ slotId: string }>
 ): AlternativeLineup[] {
   const alternatives: AlternativeLineup[] = [];
 
   for (const slot of lineup) {
-    const slotDomain = getSlotDomain(slot.position);
+    const isPitcherSlot = pitcherSlots.some(ps => ps.slotId === slot.position);
     
-    // Only generate alternatives from same domain
-    const alternativesForSlot = slotDomain === 'pitching'
-      ? scoredPitchers.filter(p => p.player.id !== slot.player.id)
-      : scoredHitters.filter(h => h.player.id !== slot.player.id);
+    const alternativesForSlot = isPitcherSlot
+      ? rosterPitchers.filter(p => p.player.id !== slot.player.id)
+      : rosterHitters.filter(h => h.player.id !== slot.player.id);
 
     if (alternativesForSlot.length > 0) {
       const nextBest = alternativesForSlot[0];
@@ -500,7 +494,7 @@ function generateDomainAwareAlternatives(
         lineup: altLineup,
         expectedPoints: altPoints,
         varianceVsOptimal: altPoints - origPoints,
-        tradeoffDescription: `Swap ${slot.player.name} for ${nextBest.player.name} (${slotDomain})`,
+        tradeoffDescription: `Swap ${slot.player.name} for ${nextBest.player.name}`,
       });
     }
   }
@@ -508,73 +502,121 @@ function generateDomainAwareAlternatives(
   return alternatives;
 }
 
-function generateDomainAwareSummary(
+// ============================================================================
+// Team-Aware Explanation (Step 4: Decision Justification)
+// ============================================================================
+
+function generateTeamAwareExplanation(
   lineup: LineupSlot[],
   expectedPoints: number,
   hitterCount: number,
-  pitcherCount: number
-): string {
-  return `Domain-optimized lineup: ${hitterCount} hitters + ${pitcherCount} pitchers. ` +
-    `Projected ${expectedPoints.toFixed(1)} points. ` +
-    `${lineup.filter(s => s.confidence >= 'high').length} high-confidence selections.`;
-}
+  pitcherCount: number,
+  teamState: TeamState,
+  lockedPlayerIds: Set<UUID>,
+  rosterHitters: HitterAssemblyContext['scoredHitters'],
+  rosterPitchers: PitcherAssemblyContext['scoredPitchers']
+): LineupExplanation {
+  const summary = buildTeamAwareSummary(lineup, expectedPoints, hitterCount, pitcherCount, teamState);
+  
+  const keyDecisions: KeyDecisionPoint[] = [];
+  
+  // Identify critical decisions with team context
+  const lockedCount = lockedPlayerIds.size;
+  const openSlotCount = teamState.lineupConfig.slots.length - lineup.length;
+  
+  // Find players with multiple eligible slots (flexibility)
+  const flexiblePlayers = rosterHitters.filter(h => 
+    h.eligibleSlots.length > 2 && lineup.some(s => s.player.id === h.player.id)
+  );
+  
+  if (flexiblePlayers.length > 0) {
+    keyDecisions.push({
+      position: 'UTIL',
+      chosenPlayer: flexiblePlayers[0].player,
+      alternativesConsidered: [],
+      whyChosen: `Multi-position eligibility provides roster flexibility`,
+    });
+  }
 
-function generateDomainAwareRiskFactors(
-  lineup: LineupSlot[],
-  scoredHitters: Array<{ player: PlayerIdentity; score: PlayerScore }>,
-  scoredPitchers: Array<{ player: PlayerIdentity; score: PitcherScore }>
-): string[] {
-  const risks: string[] = [];
+  // Identify pitching decisions
+  const closerSlots = lineup.filter(s => 
+    s.position.toUpperCase().includes('CL') || s.factors.includes('closer')
+  );
+  if (closerSlots.length > 0) {
+    keyDecisions.push({
+      position: 'RP/CL',
+      chosenPlayer: closerSlots[0].player,
+      alternativesConsidered: [],
+      whyChosen: `Closer role locked in for save opportunities`,
+    });
+  }
+
+  const riskFactors: string[] = [];
+  
+  // Team-specific risks
+  if (lockedCount > 0) {
+    riskFactors.push(`${lockedCount} players locked (games started)`);
+  }
+  
+  const injuredOnRoster = teamState.roster.players.filter(p => p.isInjured);
+  if (injuredOnRoster.length > 0) {
+    riskFactors.push(`${injuredOnRoster.length} injured players on roster`);
+  }
 
   const lowConfidence = lineup.filter(s => s.confidence === 'low' || s.confidence === 'very_low');
   if (lowConfidence.length > 0) {
-    risks.push(`${lowConfidence.length} low-confidence selections`);
+    riskFactors.push(`${lowConfidence.length} low-confidence selections`);
   }
 
-  const blowUpRiskPitchers = scoredPitchers.filter(
-    p => p.score.components.consistency < 40
-  );
-  if (blowUpRiskPitchers.length > 0) {
-    risks.push(`${blowUpRiskPitchers.length} pitchers with blow-up risk in rotation`);
-  }
-
-  return risks;
-}
-
-function generateDomainAwareOpportunities(
-  lineup: LineupSlot[],
-  scoredHitters: Array<{ player: PlayerIdentity; score: PlayerScore }>,
-  scoredPitchers: Array<{ player: PlayerIdentity; score: PitcherScore }>
-): string[] {
   const opportunities: string[] = [];
-
+  
+  // Find valuable bench players
   const lineupIds = new Set(lineup.map(s => s.player.id));
-
-  // Hitter opportunities
-  const benchHitters = scoredHitters.filter(
-    h => !lineupIds.has(h.player.id) && h.score.overallValue >= 60
+  const valuableBenchHitters = rosterHitters.filter(
+    h => !lineupIds.has(h.player.id) && h.overallValue >= 55
   );
-  if (benchHitters.length > 0) {
-    opportunities.push(`${benchHitters.length} valuable hitters on bench`);
+  if (valuableBenchHitters.length > 0) {
+    opportunities.push(`${valuableBenchHitters.length} valuable hitters on bench for matchups`);
   }
 
-  // Pitcher opportunities (the cheat code)
-  const streamerPitchers = scoredPitchers.filter(
+  const streamingPitchers = rosterPitchers.filter(
     p =>
       !lineupIds.has(p.player.id) &&
-      (p.score.role.startProbabilityNext7 > 0.7 ||
-       (p.score.role.isCloser && p.score.overallValue >= 65))
+      p.role.startProbabilityNext7 > 0.7
   );
-  if (streamerPitchers.length > 0) {
-    opportunities.push(`${streamerPitchers.length} streaming pitcher options available`);
+  if (streamingPitchers.length > 0) {
+    opportunities.push(`${streamingPitchers.length} streaming SP options on bench`);
   }
 
-  return opportunities;
+  return {
+    summary,
+    keyDecisions,
+    riskFactors,
+    opportunities,
+  };
+}
+
+function buildTeamAwareSummary(
+  lineup: LineupSlot[],
+  expectedPoints: number,
+  hitterCount: number,
+  pitcherCount: number,
+  teamState: TeamState
+): string {
+  const lockedCount = teamState.currentLineup.lockedSlots.length;
+  const totalRosterSize = teamState.roster.players.length;
+  
+  return `Optimized lineup for ${teamState.identity.teamName}: ` +
+    `${hitterCount} hitters + ${pitcherCount} pitchers ` +
+    `(${lineup.length}/${totalRosterSize} roster spots filled). ` +
+    `Projected ${expectedPoints.toFixed(1)} points. ` +
+    `${lockedCount > 0 ? `${lockedCount} locked. ` : ''}` +
+    `${lineup.filter(s => s.confidence >= 'high').length} high-confidence selections.`;
 }
 
 function calculateConfidenceScore(lineup: LineupSlot[]): number {
   if (lineup.length === 0) return 0;
-
+  
   const confidenceMap: Record<ConfidenceLevel, number> = {
     very_high: 1.0,
     high: 0.8,
@@ -582,31 +624,20 @@ function calculateConfidenceScore(lineup: LineupSlot[]): number {
     low: 0.4,
     very_low: 0.2,
   };
-
-  const totalConfidence = lineup.reduce(
-    (sum, s) => sum + confidenceMap[s.confidence],
-    0
-  );
-
-  return totalConfidence / lineup.length;
+  
+  const total = lineup.reduce((sum, s) => sum + confidenceMap[s.confidence], 0);
+  return total / lineup.length;
 }
 
 // ============================================================================
 // Legacy Compatibility
 // ============================================================================
 
-/**
- * Legacy assembleLineup for backward compatibility.
- * Only works with hitters - pitchers must use assembleLineupDomainAware.
- * @deprecated Use assembleLineupDomainAware for full lineup assembly
- */
-export function assembleLineup(input: {
-  request: LineupOptimizationRequest;
-  playerScores: Map<string, PlayerScore>;
-}): AssemblyResult {
-  return assembleLineupDomainAware({
-    request: input.request,
-    hitterScores: input.playerScores,
-    pitcherScores: new Map(),
-  });
+export { assembleLineupFromTeamState as assembleLineupDomainAware };
+
+// Old interface for backward compatibility - requires TeamState now
+export interface DomainAwareAssemblyInput {
+  teamState: TeamState;
+  hitterScores: Map<string, PlayerScore>;
+  pitcherScores: Map<string, PitcherScore>;
 }
