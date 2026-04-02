@@ -15,7 +15,7 @@ const TEST_PLAYERS = [
   { mlbamId: '545361', name: 'Mike Trout', type: 'hitter' },
   // Pitchers
   { mlbamId: '669203', name: 'Tarik Skubal', type: 'pitcher' },
-  { mlbamId: '686970', name: 'Paul Skenes', type: 'pitcher' },
+  { mlbamId: '694973', name: 'Paul Skenes', type: 'pitcher' },  // CORRECTED ID
   { mlbamId: '656288', name: 'Corbin Burnes', type: 'pitcher' },
   { mlbamId: '543037', name: 'Gerrit Cole', type: 'pitcher' },
   { mlbamId: '676440', name: 'Dylan Cease', type: 'pitcher' },

@@ -17,7 +17,7 @@
 | # | Player | Team | mlbamId | Profile | Why Selected |
 |---|--------|------|---------|---------|--------------|
 | 1 | **Tarik Skubal** | DET | 669203 | Ace, high K% | Elite dominance, stat reliability |
-| 2 | **Paul Skenes** | PIT | 686970 | Rookie phenom | Small sample, stabilization edge case |
+| 2 | **Paul Skenes** | PIT | **694973** | Rookie phenom | **187.2 IP in 2025** - ID corrected |
 | 3 | **Corbin Burnes** | BAL | 656288 | Cy Young winner | Consistent top-tier performer |
 | 4 | **Gerrit Cole** | NYY | 543037 | Veteran ace | Injury return, data gaps |
 | 5 | **Dylan Cease** | SD | 676440 | High K%, wild | High variance, volatility test |
