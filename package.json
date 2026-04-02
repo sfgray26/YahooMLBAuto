@@ -12,6 +12,7 @@
     "db:migrate": "cd packages/infrastructure && pnpm prisma migrate dev",
     "db:generate": "cd packages/infrastructure && pnpm prisma generate",
     "db:seed": "cd packages/infrastructure && pnpm prisma db seed",
+    "db:test": "tsx scripts/test-persistence.ts",
     "api:dev": "cd apps/api && pnpm dev",
     "worker:dev": "cd apps/worker && pnpm dev"
   },
@@ -19,7 +20,8 @@
     "turbo": "^2.0.0",
     "typescript": "^5.4.0",
     "@types/node": "^20.0.0",
-    "vitest": "^1.6.0"
+    "vitest": "^1.6.0",
+    "tsx": "^4.11.0"
   },
   "packageManager": "pnpm@9.0.0",
   "engines": {
