@@ -14,6 +14,7 @@
   "dependencies": {
     "@cbb/core": "workspace:*",
     "@cbb/infrastructure": "workspace:*",
+    "@cbb/worker": "workspace:*",
     "fastify": "^4.27.0",
     "@fastify/cors": "^9.0.0",
     "@fastify/helmet": "^11.1.0",

@@ -32,6 +32,9 @@ importers:
       '@cbb/infrastructure':
         specifier: workspace:*
         version: link:../../packages/infrastructure
+      '@cbb/worker':
+        specifier: workspace:*
+        version: link:../worker
       '@fastify/cors':
         specifier: ^9.0.0
         version: 9.0.1
