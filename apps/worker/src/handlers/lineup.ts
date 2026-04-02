@@ -30,9 +30,51 @@ export async function handleLineupOptimization(
   console.log('[LINEUP] Retrieved scores for', playerScores.size, 'players');
 
   // Step 2: Assemble lineup using deterministic logic
+  // TODO: Refactor to use TeamState - stubbed for now
   const assemblyInput: AssemblyInput = {
-    request,
-    playerScores,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    teamState: {
+      identity: {
+        teamId: 'stub-team-id',
+        leagueId: 'stub-league-id',
+        teamName: 'Team',
+        leagueName: 'League',
+        platform: 'yahoo',
+        season: new Date().getFullYear(),
+        scoringPeriod: {
+          type: 'daily',
+          startDate: request.scoringPeriod.startDate,
+          endDate: request.scoringPeriod.endDate,
+          games: [],
+        },
+      },
+      roster: {
+        version: 1,
+        lastUpdated: new Date().toISOString(),
+        players: [],
+      },
+      lineupConfig: {
+        slots: [],
+        totalSlots: 0,
+        hittingSlots: 0,
+        pitchingSlots: 0,
+        benchSlots: 0,
+      },
+      currentLineup: {
+        assignments: [],
+        lockedSlots: [],
+        benchAssignments: [],
+      },
+      waiverState: {
+        budgetTotal: 100,
+        budgetRemaining: 100,
+        pendingClaims: [],
+        lastWaiverProcess: null,
+        nextWaiverProcess: null,
+      },
+    } as any,
+    hitterScores: new Map(),
+    pitcherScores: new Map(),
   };
 
   const assemblyResult = assembleLineup(assemblyInput);

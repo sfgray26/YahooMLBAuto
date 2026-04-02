@@ -346,7 +346,7 @@ function computeStabilization(
   totalBF: number
 ): PitcherDerivedFeatures['stabilization'] {
   return {
-    strikeoutRateReliable: totalBF >= STABILIZATION_BF.strikeoutRate,
+    kRateReliable: totalBF >= STABILIZATION_BF.strikeoutRate,
     bbRateReliable: totalBF >= STABILIZATION_BF.walkRate,
     eraReliable: totalBF >= STABILIZATION_BF.era,
     whipReliable: totalBF >= STABILIZATION_BF.whip,

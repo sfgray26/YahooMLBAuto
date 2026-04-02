@@ -19,8 +19,8 @@ export type {
   BenchAssignment,
   WaiverState,
   WaiverClaim,
-  ScoringPeriod,
-  ScheduledGame,
+  TeamScoringPeriod,
+  TeamScheduledGame,
   ValidationResult,
 } from './contract.js';
 

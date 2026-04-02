@@ -33,17 +33,17 @@ export interface TeamIdentity {
   readonly leagueName: string;
   readonly platform: 'yahoo' | 'espn' | 'fantrax' | 'sleeper' | 'manual';
   readonly season: number;
-  readonly scoringPeriod: ScoringPeriod;
+  readonly scoringPeriod: TeamScoringPeriod;
 }
 
-export interface ScoringPeriod {
+export interface TeamScoringPeriod {
   readonly type: 'daily' | 'weekly';
   readonly startDate: ISO8601Timestamp;
   readonly endDate: ISO8601Timestamp;
-  readonly games: ScheduledGame[];
+  readonly games: TeamScheduledGame[];
 }
 
-export interface ScheduledGame {
+export interface TeamScheduledGame {
   readonly gameId: string;
   readonly homeTeam: string;
   readonly awayTeam: string;

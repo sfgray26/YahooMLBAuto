@@ -19,10 +19,18 @@ import type {
   WaiverState,
   RosterPlayer,
   LineupSlotConfig,
-  ScoringPeriod,
-  ScheduledGame,
-} from '../contract.js';
-import { v4 as uuidv4 } from 'uuid';
+  TeamScoringPeriod,
+  TeamScheduledGame,
+} from './contract.js';
+
+// Simple UUID generator (no external dependency)
+function uuidv4(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
 
 // ============================================================================
 // Static Data Store (In-Memory with JSON persistence option)
@@ -211,7 +219,7 @@ interface CurrentLineupInput {
  */
 export function buildTeamState(
   currentLineup: CurrentLineupInput,
-  scoringPeriod?: ScoringPeriod
+  scoringPeriod?: TeamScoringPeriod
 ): TeamState {
   const now = new Date().toISOString();
   
@@ -307,7 +315,7 @@ export function getEmptyLineup(): CurrentLineupInput {
 /**
  * Build TeamState with all players on bench (useful for initial setup).
  */
-export function buildTeamStateWithEmptyLineup(scoringPeriod?: ScoringPeriod): TeamState {
+export function buildTeamStateWithEmptyLineup(scoringPeriod?: TeamScoringPeriod): TeamState {
   return buildTeamState(getEmptyLineup(), scoringPeriod);
 }
 

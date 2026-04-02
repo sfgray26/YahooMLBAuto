@@ -46,7 +46,8 @@ export async function batchScorePitchers(
     // Get all pitcher derived features for this season
     // Note: Using a hypothetical pitcherDerivedStats table
     // In practice, this would query the actual database table
-    const derivedRecords = await prisma.pitcherDerivedStats?.findMany({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const derivedRecords = await (prisma as any).pitcherDerivedStats?.findMany({
       where: { season },
       distinct: ['playerMlbamId'],
       orderBy: { computedAt: 'desc' },
@@ -188,7 +189,8 @@ export async function scoreSinglePitcher(
   season: number
 ): Promise<PitcherScore | null> {
   // Note: This would query the actual pitcherDerivedStats table
-  const record = await (prisma.pitcherDerivedStats as unknown as { findFirst: (args: unknown) => Promise<unknown> })?.findFirst({
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const record = await (prisma as any).pitcherDerivedStats?.findFirst({
     where: { playerMlbamId, season },
     orderBy: { computedAt: 'desc' },
   });

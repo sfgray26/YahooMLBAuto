@@ -298,6 +298,7 @@ export function assembleLineupFromTeamState(input: TeamStateLineupInput): Assemb
               id: rosterPlayer.playerId,
               mlbamId: rosterPlayer.mlbamId,
               name: rosterPlayer.name,
+              team: rosterPlayer.team,
               position: rosterPlayer.positions,
             },
             score,
@@ -315,6 +316,7 @@ export function assembleLineupFromTeamState(input: TeamStateLineupInput): Assemb
               id: rosterPlayer.playerId,
               mlbamId: rosterPlayer.mlbamId,
               name: rosterPlayer.name,
+              team: rosterPlayer.team,
               position: rosterPlayer.positions,
             },
             score,
@@ -634,6 +636,9 @@ function calculateConfidenceScore(lineup: LineupSlot[]): number {
 // ============================================================================
 
 export { assembleLineupFromTeamState as assembleLineupDomainAware };
+
+// Re-export from core for convenience
+export type { LineupOptimizationResult };
 
 // Old interface for backward compatibility - requires TeamState now
 export interface DomainAwareAssemblyInput {

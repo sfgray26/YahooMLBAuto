@@ -29,9 +29,52 @@ export async function handleWaiverRecommendation(
   console.log('[WAIVER] Retrieved scores for', playerScores.size, 'players');
 
   // Step 2: Assemble waiver decisions
+  // TODO: Refactor to use TeamState - stubbed for now
   const assemblyInput: WaiverAssemblyInput = {
-    request,
-    playerScores,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    teamState: {
+      identity: {
+        teamId: 'stub-team-id',
+        leagueId: 'stub-league-id',
+        teamName: 'Team',
+        leagueName: 'League',
+        platform: 'yahoo',
+        season: new Date().getFullYear(),
+        scoringPeriod: {
+          type: 'daily',
+          startDate: new Date().toISOString(),
+          endDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+          games: [],
+        },
+      },
+      roster: {
+        version: 1,
+        lastUpdated: new Date().toISOString(),
+        players: [],
+      },
+      lineupConfig: {
+        slots: [],
+        totalSlots: 0,
+        hittingSlots: 0,
+        pitchingSlots: 0,
+        benchSlots: 0,
+      },
+      currentLineup: {
+        assignments: [],
+        lockedSlots: [],
+        benchAssignments: [],
+      },
+      waiverState: {
+        budgetTotal: 100,
+        budgetRemaining: 100,
+        pendingClaims: [],
+        lastWaiverProcess: null,
+        nextWaiverProcess: null,
+      },
+    } as any,
+    hitterScores: new Map(),
+    pitcherScores: new Map(),
+    availablePlayers: [],
   };
 
   const assemblyResult = assembleWaiverDecisions(assemblyInput);

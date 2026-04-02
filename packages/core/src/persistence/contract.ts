@@ -17,7 +17,6 @@
  */
 
 import type { UUID, ISO8601Timestamp } from '@cbb/core';
-import type { TeamState } from '../team/contract.js';
 
 // ============================================================================
 // Base Decision Types
@@ -60,6 +59,9 @@ export interface LineupDecisionRecord extends BaseDecisionRecord {
   
   // Alternatives considered
   readonly alternatives: AlternativeLineupSnapshot[];
+  
+  // Key decisions made
+  readonly keyDecisions: KeyDecisionSnapshot[];
   
   // Key metrics at decision time
   readonly confidenceScore: number;
@@ -109,6 +111,14 @@ export interface AlternativeLineupSnapshot {
     readonly fromPlayerId: UUID;
     readonly toPlayerId: UUID;
   }>;
+}
+
+export interface KeyDecisionSnapshot {
+  readonly position: string;
+  readonly chosenPlayerId: UUID;
+  readonly chosenPlayerName: string;
+  readonly alternativesConsidered: string[];
+  readonly whyChosen: string;
 }
 
 export interface LineupAccuracyMetrics {

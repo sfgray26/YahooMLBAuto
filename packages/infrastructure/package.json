@@ -16,6 +16,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@cbb/core": "workspace:*",
     "@prisma/client": "^5.14.0",
     "bullmq": "^5.7.0",
     "ioredis": "^5.4.0"

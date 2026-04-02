@@ -12,18 +12,18 @@ datasource db {
 // ============================================================================
 
 model DecisionRequest {
-  id          String   @id @default(uuid())
-  version     String   @default("v1")
-  type        String   // 'lineup_optimization' | 'waiver_recommendation' | 'player_valuation'
-  createdAt   DateTime @default(now())
-  payload     Json     // Serialized request contract
-  status      String   @default("pending") // 'pending' | 'processing' | 'completed' | 'failed'
-  traceId     String   @unique
-  
+  id        String   @id @default(uuid())
+  version   String   @default("v1")
+  type      String // 'lineup_optimization' | 'waiver_recommendation' | 'player_valuation'
+  createdAt DateTime @default(now())
+  payload   Json // Serialized request contract
+  status    String   @default("pending") // 'pending' | 'processing' | 'completed' | 'failed'
+  traceId   String   @unique
+
   // Relations
-  result      DecisionResult?
-  valuations  PlayerValuation[]
-  
+  result     DecisionResult?
+  valuations PlayerValuation[]
+
   @@index([status])
   @@index([createdAt])
   @@index([traceId])
@@ -31,20 +31,20 @@ model DecisionRequest {
 }
 
 model DecisionResult {
-  id            String   @id @default(uuid())
-  requestId     String   @unique
-  request       DecisionRequest @relation(fields: [requestId], references: [id])
-  
-  createdAt     DateTime @default(now())
-  completedAt   DateTime?
-  
-  type          String   // 'lineup_result' | 'waiver_result' | 'valuation_result'
-  payload       Json     // Serialized result contract
-  
+  id        String          @id @default(uuid())
+  requestId String          @unique
+  request   DecisionRequest @relation(fields: [requestId], references: [id])
+
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  type    String // 'lineup_result' | 'waiver_result' | 'valuation_result'
+  payload Json // Serialized result contract
+
   // Metadata
   processingTimeMs Int?
   confidence       String?
-  
+
   @@map("decision_results")
 }
 
@@ -53,50 +53,50 @@ model DecisionResult {
 // ============================================================================
 
 model PlayerValuation {
-  id              String   @id @default(uuid())
-  version         String   @default("v1")
-  
+  id      String @id @default(uuid())
+  version String @default("v1")
+
   // Player identity
   playerId        String
   playerMlbamId   String
   playerName      String
   playerTeam      String
   playerPositions String[]
-  
+
   // Context
   scoringPeriodStart DateTime
   scoringPeriodEnd   DateTime
-  
+
   // Valuation data
-  generatedAt     DateTime
-  validUntil      DateTime
-  
+  generatedAt DateTime
+  validUntil  DateTime
+
   // Projections (stored as JSON for flexibility)
-  pointProjection Json
+  pointProjection      Json
   valueOverReplacement Float
   floorProjection      Float
   ceilingProjection    Float
-  
+
   // Risk
-  overallRisk          String
-  injuryRisk           String
-  playingTimeRisk      String
-  performanceVariance  String
-  
+  overallRisk         String
+  injuryRisk          String
+  playingTimeRisk     String
+  performanceVariance String
+
   // Methodology
-  modelType       String
-  modelVersion    String
-  featuresUsed    String[]
-  
+  modelType    String
+  modelVersion String
+  featuresUsed String[]
+
   // Raw factors (stored as JSON array)
-  factors         Json
-  
+  factors Json
+
   // Audit
-  dataSources     Json
-  traceId         String?
-  requestId       String?
-  request         DecisionRequest? @relation(fields: [requestId], references: [id])
-  
+  dataSources Json
+  traceId     String?
+  requestId   String?
+  request     DecisionRequest? @relation(fields: [requestId], references: [id])
+
   @@index([playerId])
   @@index([playerMlbamId])
   @@index([scoringPeriodStart])
@@ -110,35 +110,35 @@ model PlayerValuation {
 // ============================================================================
 
 model ExecutionDecision {
-  id              String   @id @default(uuid())
-  version         String   @default("v1")
-  
-  createdAt       DateTime @default(now())
-  decisionType    String   // 'set_lineup' | 'add_player' | 'drop_player' | etc.
-  
+  id      String @id @default(uuid())
+  version String @default("v1")
+
+  createdAt    DateTime @default(now())
+  decisionType String // 'set_lineup' | 'add_player' | 'drop_player' | etc.
+
   // Target
-  targetType      String
-  targetId        String
+  targetType       String
+  targetId         String
   targetPlatformId String?
-  
+
   // Decision
   recommendedAction Json
   reasoning         Json
   confidence        String
-  
+
   // Safety
-  executionMode     String   // 'manual_review' | 'suggest_only' | 'auto_if_confident' | 'full_auto'
+  executionMode       String // 'manual_review' | 'suggest_only' | 'auto_if_confident' | 'full_auto'
   humanReviewRequired Boolean @default(true)
-  
+
   // Status
-  status          String   @default("pending") // 'pending' | 'approved' | 'rejected' | 'executed' | 'expired'
-  decidedAt       DateTime?
-  decidedBy       String?  // 'user' | 'system' | 'automation'
-  
+  status    String    @default("pending") // 'pending' | 'approved' | 'rejected' | 'executed' | 'expired'
+  decidedAt DateTime?
+  decidedBy String? // 'user' | 'system' | 'automation'
+
   // Relations
   sourceRequestId String?
-  traceId         String   @unique
-  
+  traceId         String  @unique
+
   @@index([status])
   @@index([decisionType])
   @@index([createdAt])
@@ -151,26 +151,26 @@ model ExecutionDecision {
 // ============================================================================
 
 model LineupResult {
-  id            String   @id @default(uuid())
-  requestId     String   @unique
-  generatedAt   DateTime @default(now())
-  
+  id          String   @id @default(uuid())
+  requestId   String   @unique
+  generatedAt DateTime @default(now())
+
   // Optimization context
   scoringPeriodStart DateTime
   scoringPeriodEnd   DateTime
-  
+
   // Result
-  expectedPoints     Float
-  confidenceScore    Float
-  
+  expectedPoints  Float
+  confidenceScore Float
+
   // Stored as JSON arrays
   optimalLineup      Json
   alternativeLineups Json
   explanation        Json
-  
+
   // Metadata
-  traceId       String   @unique
-  
+  traceId String @unique
+
   @@index([scoringPeriodStart])
   @@map("lineup_results")
 }
@@ -180,17 +180,17 @@ model LineupResult {
 // ============================================================================
 
 model WaiverResult {
-  id            String   @id @default(uuid())
-  requestId     String   @unique
-  generatedAt   DateTime @default(now())
-  
+  id          String   @id @default(uuid())
+  requestId   String   @unique
+  generatedAt DateTime @default(now())
+
   // Recommendations stored as JSON
   recommendations Json
   rosterAnalysis  Json
-  
+
   // Metadata
-  traceId       String   @unique
-  
+  traceId String @unique
+
   @@map("waiver_results")
 }
 
@@ -199,30 +199,30 @@ model WaiverResult {
 // ============================================================================
 
 model RawIngestionLog {
-  id          String   @id @default(uuid())
-  
+  id String @id @default(uuid())
+
   // Natural key for idempotency
-  cacheKey    String   @unique
-  
+  cacheKey String @unique
+
   // Source tracking
-  source      String   // 'mlb_stats_api' | etc.
-  endpoint    String   // Full URL or path
-  
+  source   String // 'mlb_stats_api' | etc.
+  endpoint String // Full URL or path
+
   // Context
-  season      Int?
-  gameType    String?
-  playerId    String?
-  
+  season   Int?
+  gameType String?
+  playerId String?
+
   // Raw payload (exactly as received from provider)
   rawPayload  Json
-  recordCount Int      @default(0)
-  
+  recordCount Int  @default(0)
+
   // Timing
-  fetchedAt   DateTime @default(now())
-  
+  fetchedAt DateTime @default(now())
+
   // Observability
-  traceId     String
-  
+  traceId String
+
   @@index([source])
   @@index([season])
   @@index([fetchedAt])
@@ -235,48 +235,48 @@ model RawIngestionLog {
 // ============================================================================
 
 model PlayerDailyStats {
-  id          String   @id @default(uuid())
-  
+  id String @id @default(uuid())
+
   // Canonical IDs (mapped from provider IDs)
-  playerId    String
+  playerId      String
   playerMlbamId String
-  
+
   // Date (normalized)
-  statDate    DateTime
-  season      Int
-  
+  statDate DateTime
+  season   Int
+
   // Team context
   teamId      String?
   teamMlbamId String?
-  
+
   // Raw counting stats (no computed fields)
-  gamesPlayed Int      @default(0)
-  atBats      Int      @default(0)
-  runs        Int      @default(0)
-  hits        Int      @default(0)
-  doubles     Int      @default(0)
-  triples     Int      @default(0)
-  homeRuns    Int      @default(0)
-  rbi         Int      @default(0)
-  stolenBases Int      @default(0)
-  caughtStealing Int   @default(0)
-  walks       Int      @default(0)
-  strikeouts  Int      @default(0)
-  
+  gamesPlayed    Int @default(0)
+  atBats         Int @default(0)
+  runs           Int @default(0)
+  hits           Int @default(0)
+  doubles        Int @default(0)
+  triples        Int @default(0)
+  homeRuns       Int @default(0)
+  rbi            Int @default(0)
+  stolenBases    Int @default(0)
+  caughtStealing Int @default(0)
+  walks          Int @default(0)
+  strikeouts     Int @default(0)
+
   // Rate stats (as strings from provider, normalized later if needed)
   battingAvg  String?
   onBasePct   String?
   sluggingPct String?
   ops         String?
-  
+
   // Provider metadata
-  rawDataSource String @default("mlb_stats_api")
+  rawDataSource String  @default("mlb_stats_api")
   rawDataId     String?
-  
+
   // Audit
-  ingestedAt  DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  
+  ingestedAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
   // Natural key for idempotency
   @@unique([playerMlbamId, statDate, rawDataSource])
   @@index([playerId])
@@ -291,62 +291,62 @@ model PlayerDailyStats {
 // ============================================================================
 
 model PlayerDerivedStats {
-  id            String   @id @default(uuid())
-  
+  id String @id @default(uuid())
+
   playerId      String
   playerMlbamId String
   season        Int
-  
+
   // Computation tracking
-  computedAt    DateTime @default(now())
-  computedDate  DateTime // For idempotency (date part only)
-  
+  computedAt   DateTime @default(now())
+  computedDate DateTime // For idempotency (date part only)
+
   // Volume features (rolling windows)
-  gamesLast7                Int @default(0)
-  gamesLast14               Int @default(0)
-  gamesLast30               Int @default(0)
-  plateAppearancesLast7     Int @default(0)
-  plateAppearancesLast14    Int @default(0)
-  plateAppearancesLast30    Int @default(0)
-  atBatsLast30              Int @default(0)
-  
+  gamesLast7             Int @default(0)
+  gamesLast14            Int @default(0)
+  gamesLast30            Int @default(0)
+  plateAppearancesLast7  Int @default(0)
+  plateAppearancesLast14 Int @default(0)
+  plateAppearancesLast30 Int @default(0)
+  atBatsLast30           Int @default(0)
+
   // Rate features (rolling averages)
-  battingAverageLast30      Float?
-  onBasePctLast30           Float?
-  sluggingPctLast30         Float?
-  opsLast30                 Float?
-  isoLast30                 Float?
-  walkRateLast30            Float?
-  strikeoutRateLast30       Float?
-  babipLast30               Float?
-  
+  battingAverageLast30 Float?
+  onBasePctLast30      Float?
+  sluggingPctLast30    Float?
+  opsLast30            Float?
+  isoLast30            Float?
+  walkRateLast30       Float?
+  strikeoutRateLast30  Float?
+  babipLast30          Float?
+
   // Stabilization flags
-  battingAverageReliable    Boolean @default(false)
-  obpReliable               Boolean @default(false)
-  slgReliable               Boolean @default(false)
-  opsReliable               Boolean @default(false)
-  gamesToReliable           Int     @default(0)
-  
+  battingAverageReliable Boolean @default(false)
+  obpReliable            Boolean @default(false)
+  slgReliable            Boolean @default(false)
+  opsReliable            Boolean @default(false)
+  gamesToReliable        Int     @default(0)
+
   // Volatility metrics
-  hitConsistencyScore       Int     @default(0)
-  productionVolatility      Float   @default(0)
-  zeroHitGamesLast14        Int     @default(0)
-  multiHitGamesLast14       Int     @default(0)
-  
+  hitConsistencyScore  Int   @default(0)
+  productionVolatility Float @default(0)
+  zeroHitGamesLast14   Int   @default(0)
+  multiHitGamesLast14  Int   @default(0)
+
   // Opportunity signals
-  gamesStartedLast14        Int     @default(0)
-  lineupSpot                Int?
-  platoonRisk               String? // 'low' | 'medium' | 'high'
-  playingTimeTrend          String? // 'up' | 'stable' | 'down'
-  
+  gamesStartedLast14 Int     @default(0)
+  lineupSpot         Int?
+  platoonRisk        String? // 'low' | 'medium' | 'high'
+  playingTimeTrend   String? // 'up' | 'stable' | 'down'
+
   // Replacement context
-  positionEligibility       String[] @default([])
-  waiverWireValue           Float?
-  rosteredPercent           Float?
-  
+  positionEligibility String[] @default([])
+  waiverWireValue     Float?
+  rosteredPercent     Float?
+
   // Audit
-  traceId       String
-  
+  traceId String
+
   // Natural key: one computation per player per day
   @@unique([playerMlbamId, season, computedDate])
   @@index([playerId])
@@ -360,17 +360,17 @@ model PlayerDerivedStats {
 // ============================================================================
 
 model DataSourceCache {
-  id            String   @id @default(uuid())
-  source        String   // 'mlb_stats_api' | 'fangraphs' | 'weather_api'
-  endpoint      String
-  cacheKey      String   @unique
-  
-  fetchedAt     DateTime @default(now())
-  expiresAt     DateTime
-  
-  data          Json
-  etag          String?
-  
+  id       String @id @default(uuid())
+  source   String // 'mlb_stats_api' | 'fangraphs' | 'weather_api'
+  endpoint String
+  cacheKey String @unique
+
+  fetchedAt DateTime @default(now())
+  expiresAt DateTime
+
+  data Json
+  etag String?
+
   @@index([source])
   @@index([expiresAt])
   @@index([cacheKey])
@@ -382,15 +382,15 @@ model DataSourceCache {
 // ============================================================================
 
 model SystemEvent {
-  id            String   @id @default(uuid())
-  eventId       String   @unique
-  eventType     String
-  timestamp     DateTime @default(now())
-  
-  payload       Json
-  
-  metadata      Json     // { source, traceId, correlationId, userId }
-  
+  id        String   @id @default(uuid())
+  eventId   String   @unique
+  eventType String
+  timestamp DateTime @default(now())
+
+  payload Json
+
+  metadata Json // { source, traceId, correlationId, userId }
+
   @@index([eventType])
   @@index([timestamp])
   @@index([eventId])
@@ -403,42 +403,46 @@ model SystemEvent {
 // ============================================================================
 
 model PersistedDecision {
-  id              String   @id @default(uuid())
-  decisionId      String   @unique
-  
+  id         String @id @default(uuid())
+  decisionId String @unique
+
   // Decision context
-  decisionType    String   // 'lineup' | 'waiver_add' | 'waiver_drop' | 'waiver_swap'
-  teamId          String
-  leagueId        String
-  season          Int
-  
+  decisionType String // 'lineup' | 'waiver_add' | 'waiver_drop' | 'waiver_swap'
+  teamId       String
+  leagueId     String
+  season       Int
+
   // Timing
-  createdAt       DateTime @default(now())
-  executedAt      DateTime?
-  status          String   @default("pending") // 'pending' | 'executed' | 'rejected' | 'expired'
-  
+  createdAt  DateTime  @default(now())
+  executedAt DateTime?
+  status     String    @default("pending") // 'pending' | 'executed' | 'rejected' | 'expired'
+
   // Core decision data (full snapshot)
   teamStateSnapshot Json
-  decisionPayload   Json   // The actual decision (lineup, waiver, etc.)
-  
+  decisionPayload   Json // The actual decision (lineup, waiver, etc.)
+
   // Scores used at decision time
-  scoresSnapshot    Json   // Map of playerId -> score data
-  
+  scoresSnapshot Json // Map of playerId -> score data
+
   // Monte Carlo data
-  monteCarloData    Json?  // Map of playerId -> MC percentiles
-  
+  monteCarloData Json? // Map of playerId -> MC percentiles
+
   // Confidence metrics
   confidence        Float
   confidenceFactors String[] // What drove the confidence score
-  
+
   // For backtesting
-  actualResult      Json?  // Filled in after scoring period
-  accuracyMetrics   Json?  // Calculated after results come in
-  
+  actualResult    Json? // Filled in after scoring period
+  accuracyMetrics Json? // Calculated after results come in
+
   // Metadata
-  traceId           String   @unique
-  reason            String
-  
+  traceId String @unique
+  reason  String
+
+  // Relations (reverse)
+  lineupDetail LineupDecisionDetail?
+  waiverDetail WaiverDecisionDetail?
+
   // Query indexes
   @@index([teamId])
   @@index([decisionType])
@@ -449,81 +453,81 @@ model PersistedDecision {
 }
 
 model LineupDecisionDetail {
-  id              String   @id @default(uuid())
-  decisionId      String   @unique
-  decision        PersistedDecision @relation(fields: [decisionId], references: [decisionId])
-  
+  id         String            @id @default(uuid())
+  decisionId String            @unique
+  decision   PersistedDecision @relation(fields: [decisionId], references: [decisionId])
+
   // Scoring period
-  scoringPeriod   DateTime
-  
+  scoringPeriod DateTime
+
   // Optimal lineup (stored as JSON array)
-  optimalLineup   Json
-  
+  optimalLineup Json
+
   // Bench assignments
-  benchDecisions  Json
-  
+  benchDecisions Json
+
   // Expected points
   expectedPoints  Float
   confidenceScore Float
-  
+
   // Alternatives
-  alternatives    Json
-  
+  alternatives Json
+
   // Key decisions made
-  keyDecisions    Json
-  
+  keyDecisions Json
+
   // Roster context
-  lockedPlayerCount Int
+  lockedPlayerCount  Int
   injuredPlayerCount Int
-  
+
   // For backtesting
-  actualPoints    Float?
-  projectionError Float?   // actual - expected
+  actualPoints           Float?
+  projectionError        Float? // actual - expected
   projectionErrorPercent Float?
-  
+
   // Whether an alternative would have been better
   alternativeWouldHaveBeenBetter Boolean?
-  bestAlternativePoints Float?
-  
+  bestAlternativePoints          Float?
+
   @@index([scoringPeriod])
   @@index([actualPoints])
   @@map("lineup_decision_details")
 }
 
 model WaiverDecisionDetail {
-  id              String   @id @default(uuid())
-  decisionId      String   @unique
-  decision        PersistedDecision @relation(fields: [decisionId], references: [decisionId])
-  
+  id         String            @id @default(uuid())
+  decisionId String            @unique
+  decision   PersistedDecision @relation(fields: [decisionId], references: [decisionId])
+
   // Target player
-  targetPlayerId  String
-  targetPlayerName String
+  targetPlayerId      String
+  targetPlayerName    String
   targetPlayerMlbamId String
-  
+
   // Drop player (if swap)
-  dropPlayerId    String?
-  dropPlayerName  String?
-  
+  dropPlayerId   String?
+  dropPlayerName String?
+
   // Values at decision time
-  targetValue     Float
-  dropValue       Float?
-  netValue        Float
-  
+  targetValue Float
+  dropValue   Float?
+  netValue    Float
+
   // Waiver context
-  bidAmount       Float?
-  waiverPriority  Int?
-  faabRemaining   Float
-  
+  bidAmount      Float?
+  waiverPriority Int?
+  faabRemaining  Float
+
   // Roster analysis snapshot
-  rosterAnalysis  Json
-  
+  rosterAnalysis Json
+
   // For backtesting
-  claimSucceeded  Boolean?
-  actualCost      Float?
-  weeksOwned      Int?
+  claimSucceeded    Boolean?
+  actualCost        Float?
+  weeksOwned        Int?
   pointsContributed Float?
-  roi             Float?   // Return on investment
-  wasGoodDecision Boolean? // With hindsight
-  
+  roi               Float? // Return on investment
+  wasGoodDecision   Boolean? // With hindsight
+
   @@map("waiver_decision_details")
 }

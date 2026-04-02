@@ -112,6 +112,9 @@ importers:
 
   packages/infrastructure:
     dependencies:
+      '@cbb/core':
+        specifier: workspace:*
+        version: link:../core
       '@prisma/client':
         specifier: ^5.14.0
         version: 5.22.0(prisma@5.22.0)

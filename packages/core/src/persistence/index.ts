@@ -5,7 +5,7 @@
  * Every decision stored with full metadata for backtesting and auditing.
  */
 
-// Contract types
+// Contract types only - repository implementation is in @cbb/infrastructure
 export type {
   LineupDecisionRecord,
   WaiverDecisionRecord,
@@ -19,14 +19,3 @@ export type {
   LineupAccuracyMetrics,
   WaiverActualResult,
 } from './contract.js';
-
-// Repository functions
-export {
-  persistLineupDecision,
-  persistWaiverDecision,
-  updateLineupDecisionWithActualResults,
-  updateWaiverDecisionWithActualResults,
-  queryDecisions,
-  getDecisionById,
-  getDecisionPerformanceSummary,
-} from '../../infrastructure/src/persistence/decision-repository.js';
