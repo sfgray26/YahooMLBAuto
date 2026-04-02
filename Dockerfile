@@ -35,9 +35,9 @@ RUN cd packages/infrastructure && npx prisma generate
 RUN pnpm --filter @cbb/core build
 RUN pnpm --filter @cbb/infrastructure build
 
-# Build apps
-RUN pnpm --filter @cbb/api build
+# Build apps (worker before api because api depends on worker)
 RUN pnpm --filter @cbb/worker build
+RUN pnpm --filter @cbb/api build
 
 # -----------------------------------------------------------------------------
 # Production Stage - Minimal runtime image
