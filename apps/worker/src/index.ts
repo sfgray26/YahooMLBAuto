@@ -6,7 +6,7 @@
 
 // Ingestion
 export { runDailyIngestion, validateIngestion } from './ingestion/index.js';
-export { fetchPlayerGameLogsFromApi, storeGameLogs, ingestGameLogsForPlayers, ingestGameLogsWithValidation } from './ingestion/gameLogs.js';
+export { fetchPlayerGameLogsFromApi, storeGameLogs, ingestGameLogsForPlayers, ingestGameLogsWithValidation, ingestGameLogs } from './ingestion/gameLogs.js';
 
 // Derived Stats
 export {
@@ -17,7 +17,7 @@ export {
 // Monte Carlo
 export { simulatePlayerOutcome, simulatePlayerOutcomes, comparePlayers } from './monte-carlo/index.js';
 
-// Validation
+// Validation (legacy - name-based validation)
 export {
   validatePlayerIdentity,
   validatePlayerBatch,
@@ -25,3 +25,33 @@ export {
   suggestCorrectId,
 } from './validation/playerIdentity.js';
 export type { PlayerIdentity, ValidationResult } from './validation/playerIdentity.js';
+
+// Verification (Phase 1: Trust Boundary with VerifiedPlayer registry)
+export {
+  verifyPlayerIdentity,
+  isPlayerVerified,
+  getVerifiedPlayer,
+  upsertVerifiedPlayer,
+} from './verification/playerIdentity.js';
+export type { PlayerIdentity as VerifiedIdentity } from './verification/playerIdentity.js';
+
+// Gated Ingestion (hard boundary - no player enters without verification)
+export {
+  ingestPlayer,
+  ingestPlayerBatch,
+  type GatedIngestionResult,
+} from './verification/gatedIngestion.js';
+
+// Waiver Safety (guaranteed verified recommendations)
+export {
+  recommendWaiverPickup,
+  recommendWaiverBatch,
+  filterVerifiedPlayers,
+  type SafeWaiverRecommendation,
+  type WaiverRecommendationError,
+  type WaiverRecommendationResult,
+} from './verification/waiverSafety.js';
+
+// Scoring
+export { computePlayerScore } from './scoring/playerScore.js';
+export type { PlayerScore } from './scoring/playerScore.js';

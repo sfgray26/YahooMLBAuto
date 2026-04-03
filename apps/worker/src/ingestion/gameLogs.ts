@@ -391,3 +391,37 @@ export async function ingestGameLogsWithValidation(
     validations,
   };
 }
+
+/**
+ * Simple wrapper for single player ingestion
+ * Used by gated ingestion after identity verification
+ */
+export async function ingestGameLogs(
+  mlbamId: string,
+  season: number
+): Promise<{
+  success: boolean;
+  totalGames: number;
+  errors: string[];
+}> {
+  const traceId = `ingest-${mlbamId}-${Date.now()}`;
+  const entries = await fetchPlayerGameLogsFromApi(mlbamId, season);
+  
+  if (entries.length === 0) {
+    return {
+      success: true,
+      totalGames: 0,
+      errors: [],
+    };
+  }
+
+  // Create a temporary player ID for storage
+  const tempPlayerId = `temp-${mlbamId}`;
+  const result = await storeGameLogs(tempPlayerId, entries, traceId);
+  
+  return {
+    success: result.errors.length === 0,
+    totalGames: result.stored,
+    errors: result.errors,
+  };
+}

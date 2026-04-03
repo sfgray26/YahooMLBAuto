@@ -597,3 +597,38 @@ model WaiverDecisionDetail {
 
   @@map("waiver_decision_details")
 }
+
+// ============================================================================
+// Master Verified Player Registry (Phase 1: Trust Boundary)
+// No player can be ingested or recommended unless verified here
+// ============================================================================
+
+model VerifiedPlayer {
+  mlbamId String @id // Primary key - the canonical MLBAM ID
+
+  // Identity (from MLB API)
+  fullName String
+  team     String? // Current team (nullable - free agent, etc.)
+  position String? // Primary position (nullable - DH, utility, etc.)
+
+  // Verification tracking
+  verifiedAt         DateTime @default(now())
+  verificationSource String   @default("mlb_api")
+  lastChecked        DateTime @default(now())
+
+  // Status (for quick filtering)
+  isActive Boolean @default(true)
+
+  // Audit
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Cross-reference validation (Phase 2)
+  baseballReferenceId String?
+  crossValidatedAt    DateTime?
+
+  @@index([isActive])
+  @@index([lastChecked])
+  @@index([fullName])
+  @@map("verified_players")
+}
