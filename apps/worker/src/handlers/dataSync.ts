@@ -5,9 +5,10 @@
  * Pipeline: Ingestion → Derived Features → Scoring
  */
 
-import { runDailyIngestion } from '../ingestion/index.js';
+import { runDailyIngestion, ingestGameLogsForPlayers } from '../ingestion/index.js';
 import { computeAllDerivedFeatures } from '../derived/index.js';
 import { batchScorePlayers } from '../scoring/index.js';
+import { prisma } from '@cbb/infrastructure';
 
 interface DataSyncOptions {
   date?: string;
@@ -39,15 +40,15 @@ export async function handleDataSync(
 
 async function syncPlayerDataPipeline(
   options: DataSyncOptions
-): Promise<{ synced: boolean; count: number; traceId: string; scoresComputed: number }> {
+): Promise<{ synced: boolean; count: number; traceId: string; scoresComputed: number; gameLogsIngested?: number }> {
   console.log('[DATA_SYNC] Starting full pipeline...');
 
   const season = options.date
     ? parseInt(options.date.split('-')[0])
     : new Date().getFullYear();
 
-  // Step 1: Ingestion
-  console.log('[DATA_SYNC] Step 1: Ingesting raw data...');
+  // Step 1: Ingestion (Season Stats)
+  console.log('[DATA_SYNC] Step 1: Ingesting season stats...');
   const ingestionResult = await runDailyIngestion({
     season,
     gameType: 'R',
@@ -62,6 +63,42 @@ async function syncPlayerDataPipeline(
       traceId: ingestionResult.traceId,
       scoresComputed: 0,
     };
+  }
+
+  // Step 1b: Ingest Game Logs for all players with season stats
+  console.log('[DATA_SYNC] Step 1b: Ingesting game logs...');
+  let gameLogsIngested = 0;
+  try {
+    // Get players that were just ingested
+    const players = await prisma.playerDailyStats.findMany({
+      where: { 
+        season,
+        rawDataSource: 'mlb_stats_api',
+      },
+      distinct: ['playerMlbamId'],
+      select: {
+        playerId: true,
+        playerMlbamId: true,
+      },
+      take: 1000, // Limit to avoid overwhelming the API
+    });
+
+    if (players.length > 0) {
+      const gameLogResult = await ingestGameLogsForPlayers(
+        players.map(p => ({ playerId: p.playerId, mlbamId: p.playerMlbamId })),
+        season,
+        ingestionResult.traceId
+      );
+      gameLogsIngested = gameLogResult.totalGames;
+      console.log(`[DATA_SYNC] Game logs ingested: ${gameLogsIngested} games for ${gameLogResult.totalPlayers} players`);
+      
+      if (gameLogResult.errors.length > 0) {
+        console.warn('[DATA_SYNC] Game log errors:', gameLogResult.errors.slice(0, 5));
+      }
+    }
+  } catch (error) {
+    console.error('[DATA_SYNC] Game log ingestion failed:', error);
+    // Continue - season stats are still valuable
   }
 
   // Step 2: Derived Features
@@ -89,6 +126,7 @@ async function syncPlayerDataPipeline(
 
   console.log('[DATA_SYNC] Pipeline complete:', {
     ingested: ingestionResult.stats.normalizedCreated,
+    gameLogs: gameLogsIngested,
     derived: derivedResult.playersComputed,
     scored: scoringResult.playersScored,
   });
@@ -98,6 +136,7 @@ async function syncPlayerDataPipeline(
     count: ingestionResult.stats.normalizedCreated,
     traceId: ingestionResult.traceId,
     scoresComputed: scoringResult.playersScored,
+    gameLogsIngested,
   };
 }
 

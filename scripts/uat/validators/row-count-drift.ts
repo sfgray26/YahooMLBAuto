@@ -5,6 +5,7 @@
  * Critical for ensuring no data loss or unexpected duplication.
  */
 
+import 'dotenv/config';
 import { prisma } from '@cbb/infrastructure';
 import type { UATTestResult, DriftCheckConfig } from '../types.js';
 

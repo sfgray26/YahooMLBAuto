@@ -5,6 +5,7 @@
  * Ensures the dataset accurately reflects actual MLB events.
  */
 
+import 'dotenv/config';
 import { prisma } from '@cbb/infrastructure';
 import type { UATTestResult, CompletenessConfig } from '../types.js';
 

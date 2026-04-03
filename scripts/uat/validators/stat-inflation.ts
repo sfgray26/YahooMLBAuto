@@ -5,6 +5,7 @@
  * Prevents double-counting and ensures data consistency.
  */
 
+import 'dotenv/config';
 import { prisma } from '@cbb/infrastructure';
 import type { UATTestResult, StatAggregationConfig } from '../types.js';
 
@@ -48,6 +49,7 @@ export async function checkGameLogAggregation(
         where: { season },
         _count: { gamePk: true },
         having: { gamePk: { _count: { gte: 10 } } }, // Players with 10+ games
+        orderBy: { playerMlbamId: 'asc' },
         take: 20,
       });
       samplePlayers = players.map(p => p.playerMlbamId);
@@ -335,6 +337,7 @@ export async function checkAnomalousStats(
       where: { season },
       _sum: { plateAppearances: true },
       having: { plateAppearances: { _sum: { gt: 800 } } },
+      orderBy: { playerMlbamId: 'asc' },
       take: 10,
     });
 

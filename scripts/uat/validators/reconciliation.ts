@@ -5,6 +5,7 @@
  * Ensures no data corruption during transformation.
  */
 
+import 'dotenv/config';
 import { prisma } from '@cbb/infrastructure';
 import type { UATTestResult, ReconciliationConfig } from '../types.js';
 

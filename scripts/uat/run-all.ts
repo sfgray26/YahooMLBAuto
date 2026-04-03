@@ -8,6 +8,9 @@
  *   2 = Warning(s) only
  */
 
+// Load environment variables from .env file
+import 'dotenv/config';
+
 import { v4 as uuidv4 } from 'uuid';
 import { prisma } from '@cbb/infrastructure';
 import type { UATTestResult, UATReport } from './types.js';

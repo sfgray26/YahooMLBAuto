@@ -5,6 +5,7 @@
  * Duplicates lead to stat inflation and incorrect aggregations.
  */
 
+import 'dotenv/config';
 import { prisma } from '@cbb/infrastructure';
 import type { UATTestResult, DuplicateCheckConfig } from '../types.js';
 
@@ -25,7 +26,7 @@ export async function checkDuplicateGameLogs(
 
   try {
     // Find duplicate game logs by natural key
-    const duplicates = await prisma.$queryRaw<Array<{ playerMlbamId: string; gamePk: string; count: number }>>`
+    const duplicates = await prisma.$queryRaw<Array<{ player_mlbamId: string; gamePk: string; count: number }>>`
       SELECT player_mlbam_id as playerMlbamId, game_pk as gamePk, COUNT(*) as count
       FROM player_game_logs
       WHERE season = ${season}

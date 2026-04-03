@@ -14,17 +14,21 @@
     "db:seed": "cd packages/infrastructure && pnpm prisma db seed",
     "db:test": "tsx scripts/test-persistence.ts",
     "uat": "tsx scripts/uat/run-all.ts",
+    "uat:simple": "tsx scripts/uat/run-simple.ts",
+    "backfill:game-logs": "tsx scripts/backfill-game-logs.ts",
+    "test:game-logs": "tsx scripts/test-game-log-ingestion.ts",
     "uat:verbose": "tsx scripts/uat/run-all.ts --verbose",
     "uat:json": "tsx scripts/uat/run-all.ts --json",
     "api:dev": "cd apps/api && pnpm dev",
     "worker:dev": "cd apps/worker && pnpm dev"
   },
   "devDependencies": {
+    "@types/node": "^20.0.0",
+    "dotenv": "^17.4.0",
+    "tsx": "^4.11.0",
     "turbo": "^2.0.0",
     "typescript": "^5.4.0",
-    "@types/node": "^20.0.0",
-    "vitest": "^1.6.0",
-    "tsx": "^4.11.0"
+    "vitest": "^1.6.0"
   },
   "packageManager": "pnpm@9.0.0",
   "engines": {
