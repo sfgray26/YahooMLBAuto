@@ -935,4 +935,71 @@ export async function adminRoutes(
       });
     }
   });
+
+  // ==========================================================================
+  // GET /admin/debug-game-logs/:mlbamId
+  // Debug endpoint to check raw game log values
+  // ==========================================================================
+  fastify.get<{
+    Params: {
+      mlbamId: string;
+    };
+    Querystring: {
+      season?: string;
+    };
+  }>('/debug-game-logs/:mlbamId', async (request, reply) => {
+    const { mlbamId } = request.params;
+    const season = parseInt(request.query.season || '2026');
+    
+    console.log(`[ADMIN] Debug game logs for: ${mlbamId}, season: ${season}`);
+    
+    try {
+      const gameLogs = await prisma.playerGameLog.findMany({
+        where: { playerMlbamId: mlbamId, season },
+        orderBy: { gameDate: 'desc' },
+      });
+      
+      if (gameLogs.length === 0) {
+        return reply.status(404).send({
+          success: false,
+          error: 'No game logs found',
+        });
+      }
+      
+      // Calculate aggregates
+      const totals = gameLogs.reduce((acc, g) => ({
+        games: acc.games + 1,
+        atBats: acc.atBats + g.atBats,
+        hits: acc.hits + g.hits,
+        homeRuns: acc.homeRuns + g.homeRuns,
+        strikeouts: acc.strikeouts + g.strikeouts,
+        sacrificeFlies: acc.sacrificeFlies + (g.sacrificeFlies || 0),
+        plateAppearances: acc.plateAppearances + g.plateAppearances,
+      }), { games: 0, atBats: 0, hits: 0, homeRuns: 0, strikeouts: 0, sacrificeFlies: 0, plateAppearances: 0 });
+      
+      // Calculate BABIP components
+      const hitsMinusHR = totals.hits - totals.homeRuns;
+      const ballsInPlay = totals.atBats - totals.strikeouts - totals.homeRuns + totals.sacrificeFlies;
+      const babip = ballsInPlay > 0 ? hitsMinusHR / ballsInPlay : null;
+      
+      return {
+        success: true,
+        mlbamId,
+        season,
+        totals,
+        babipCalculation: {
+          hitsMinusHR,
+          ballsInPlay,
+          babip,
+        },
+        sampleGame: gameLogs[0],
+      };
+    } catch (error) {
+      console.error('[ADMIN] Debug game logs error:', error);
+      return reply.status(500).send({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
 }
