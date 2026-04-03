@@ -7,7 +7,7 @@
 
 import 'dotenv/config';
 import { prisma } from '@cbb/infrastructure';
-import { ingestGameLogsForPlayers } from '@cbb/worker/ingestion';
+import { ingestGameLogsForPlayers } from '../apps/worker/src/ingestion/index.js';
 
 const season = parseInt(process.argv[2] || '2025');
 const batchSize = parseInt(process.argv[3] || '100');

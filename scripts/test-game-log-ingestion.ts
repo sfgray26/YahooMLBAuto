@@ -6,7 +6,7 @@
 
 import 'dotenv/config';
 import { prisma } from '@cbb/infrastructure';
-import { ingestGameLogs } from '@cbb/worker/ingestion';
+import { ingestGameLogs } from '../apps/worker/src/ingestion/gameLogs.js';
 
 const mlbamId = process.argv[2] || '660271'; // Default: Shohei Ohtani
 const season = parseInt(process.argv[3] || '2025');

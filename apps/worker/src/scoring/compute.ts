@@ -241,17 +241,32 @@ function scoreConsistency(volatility: DerivedFeatures['volatility']): number {
  * Calculate opportunity component score.
  * Based on playing time, trend, platoon risk.
  */
-function scoreOpportunity(opportunity: DerivedFeatures['opportunity']): number {
+function scoreOpportunity(
+  opportunity: DerivedFeatures['opportunity'],
+  volume: DerivedFeatures['volume']
+): number {
   let score = 50;
 
-  // Games started (proxy for playing time)
-  const gamesRate = opportunity.gamesStartedLast14 / 14;
+  // Games started - use gamesStartedLast14 if available, fallback to gamesLast14
+  // Games played in last 14 days / 14 = playing time rate
+  const gamesStarted = opportunity.gamesStartedLast14 > 0 
+    ? opportunity.gamesStartedLast14 
+    : volume.gamesLast14;
+  const gamesRate = gamesStarted / 14;
+  
   if (gamesRate >= 0.9) score += 20;
   else if (gamesRate >= 0.8) score += 15;
   else if (gamesRate >= 0.7) score += 10;
   else if (gamesRate >= 0.6) score += 5;
-  else if (gamesRate < 0.5) score -= 10;
   else if (gamesRate < 0.4) score -= 20;
+  else if (gamesRate < 0.5) score -= 10;
+
+  // Also consider 30-day volume for additional context
+  const paPerGame = volume.gamesLast30 > 0 
+    ? volume.plateAppearancesLast30 / volume.gamesLast30 
+    : 0;
+  if (paPerGame >= 4.5) score += 5;
+  else if (paPerGame < 3.0) score -= 5;
 
   // Platoon risk (penalty)
   if (opportunity.platoonRisk === 'low') score += 5;
@@ -383,11 +398,11 @@ export function scorePlayer(
     speed: scoreSpeed(features.volume),
     plateDiscipline: scorePlateDiscipline(features.rates),
     consistency: scoreConsistency(features.volatility),
-    opportunity: scoreOpportunity(features.opportunity),
+    opportunity: scoreOpportunity(features.opportunity, features.volume),
   };
 
   // Calculate weighted overall value
-  const overallValue = Math.round(
+  const rawOverallValue = Math.round(
     components.hitting * weights.hitting +
     components.power * weights.power +
     components.speed * weights.speed +
@@ -395,6 +410,18 @@ export function scorePlayer(
     components.consistency * weights.consistency +
     components.opportunity * weights.opportunity
   );
+
+  // Apply sample size cap to prevent small-sample extremes from dominating
+  // Sharp managers don't trust 45 PA samples over 500 PA track records
+  let sampleSizeCap = 100;
+  const pa = features.volume.plateAppearancesLast30;
+  if (pa >= 120) sampleSizeCap = 100;        // Large sample - no cap
+  else if (pa >= 80) sampleSizeCap = 85;     // Good sample
+  else if (pa >= 50) sampleSizeCap = 75;     // Adequate sample
+  else if (pa >= 30) sampleSizeCap = 65;     // Small sample
+  else sampleSizeCap = 55;                   // Insufficient sample
+  
+  const overallValue = Math.min(rawOverallValue, sampleSizeCap);
 
   // Calculate confidence
   const { confidence, sampleSize } = calculateConfidence(
