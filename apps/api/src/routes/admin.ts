@@ -901,6 +901,7 @@ export async function adminRoutes(
           isoLast30: derived.isoLast30,
           walkRateLast30: derived.walkRateLast30,
           strikeoutRateLast30: derived.strikeoutRateLast30,
+          babipLast30: derived.babipLast30,
         },
         reliability: {
           battingAverageReliable: derived.battingAverageReliable,
@@ -924,6 +925,7 @@ export async function adminRoutes(
             isoLast30: derived.isoLast30 === null,
             walkRateLast30: derived.walkRateLast30 === null,
             strikeoutRateLast30: derived.strikeoutRateLast30 === null,
+            babipLast30: derived.babipLast30 === null,
           }
         }
       };
