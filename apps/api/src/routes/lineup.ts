@@ -196,7 +196,7 @@ export async function lineupRoutes(
     });
 
     return {
-      optimizations: optimizations.map((opt: { id: string; status: string; createdAt: Date; result?: { createdAt: Date; confidence: string | null } }) => ({
+      optimizations: optimizations.map((opt: { id: string; status: string; createdAt: Date; result: { createdAt: Date; confidence: string | null } | null }) => ({
         requestId: opt.id,
         status: opt.status,
         createdAt: opt.createdAt,
