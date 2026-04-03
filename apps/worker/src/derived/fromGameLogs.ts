@@ -298,6 +298,12 @@ export async function computeDerivedStatsFromGameLogs(
   const hitsMinusHR = stats30.hits - stats30.homeRuns;
   const ballsInPlay = stats30.atBats - stats30.strikeouts - stats30.homeRuns + stats30.sacrificeFlies;
   const babipLast30 = ballsInPlay > 0 ? hitsMinusHR / ballsInPlay : null;
+  
+  // DEBUG: Log calculation details
+  if (process.env.DEBUG_DERIVED_STATS === 'true') {
+    console.log(`[DERIVED DEBUG] ${playerMlbamId}: hits=${stats30.hits}, HR=${stats30.homeRuns}, AB=${stats30.atBats}, K=${stats30.strikeouts}, SF=${stats30.sacrificeFlies}`);
+    console.log(`[DERIVED DEBUG] ${playerMlbamId}: hitsMinusHR=${hitsMinusHR}, ballsInPlay=${ballsInPlay}, BABIP=${babipLast30}`);
+  }
 
   // Reliability flags (standard stabilization thresholds)
   const battingAverageReliable = stats30.games >= 50 || stats30.atBats >= 200;
