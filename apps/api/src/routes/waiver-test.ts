@@ -1,55 +1,64 @@
 /**
- * Waiver Test Route with Hardcoded Roster (using real DB player IDs)
- * For UAT testing with specific roster
+ * Waiver Test Route with Real MLB Roster
+ * Uses actual player IDs and names for UAT
  */
 
 import type { FastifyInstance, FastifyPluginOptions } from 'fastify';
 import { v4 as uuidv4 } from 'uuid';
 import { prisma, addDecisionRequest } from '@cbb/infrastructure';
-import type { WaiverRecommendationRequest, RosterSlot } from '@cbb/core';
+import type { WaiverRecommendationRequest, RosterSlot, PoolPlayer } from '@cbb/core';
 
-// Hardcoded roster using REAL player IDs from database
-const HARDCODED_ROSTER: RosterSlot[] = [
-  // Active Hitters - using top scored players from DB
-  { player: { id: uuidv4(), mlbamId: '686555', name: 'Player 686555', team: 'NYY', position: ['C'] }, position: 'C', isLocked: false },
-  { player: { id: uuidv4(), mlbamId: '655316', name: 'Player 655316', team: 'LAD', position: ['1B'] }, position: '1B', isLocked: false },
-  { player: { id: uuidv4(), mlbamId: '656555', name: 'Player 656555', team: 'TOR', position: ['2B'] }, position: '2B', isLocked: false },
-  { player: { id: uuidv4(), mlbamId: '682842', name: 'Player 682842', team: 'NYM', position: ['3B'] }, position: '3B', isLocked: false },
-  { player: { id: uuidv4(), mlbamId: '682990', name: 'Player 682990', team: 'ATL', position: ['SS'] }, position: 'SS', isLocked: false },
-  { player: { id: uuidv4(), mlbamId: '694477', name: 'Player 694477', team: 'CHC', position: ['LF'] }, position: 'LF', isLocked: false },
-  { player: { id: uuidv4(), mlbamId: '656730', name: 'Player 656730', team: 'HOU', position: ['CF'] }, position: 'CF', isLocked: false },
-  { player: { id: uuidv4(), mlbamId: '683232', name: 'Player 683232', team: 'BOS', position: ['RF'] }, position: 'RF', isLocked: false },
-  { player: { id: uuidv4(), mlbamId: '657649', name: 'Player 657649', team: 'SF', position: ['1B', 'OF'] }, position: 'UTIL', isLocked: false },
+// Your actual roster with REAL MLBAM IDs
+const YOUR_ROSTER: RosterSlot[] = [
+  // Active Hitters
+  { player: { id: uuidv4(), mlbamId: '669128', name: 'Yainer Diaz', team: 'HOU', position: ['C'] }, position: 'C', isLocked: false },
+  { player: { id: uuidv4(), mlbamId: '686469', name: 'Vinnie Pasquantino', team: 'KC', position: ['1B'] }, position: '1B', isLocked: false },
+  { player: { id: uuidv4(), mlbamId: '543760', name: 'Marcus Semien', team: 'TEX', position: ['2B'] }, position: '2B', isLocked: false },
+  { player: { id: uuidv4(), mlbamId: '656305', name: 'Matt Chapman', team: 'SF', position: ['3B'] }, position: '3B', isLocked: false },
+  { player: { id: uuidv4(), mlbamId: '672666', name: 'Geraldo Perdomo', team: 'ARI', position: ['SS'] }, position: 'SS', isLocked: false },
+  { player: { id: uuidv4(), mlbamId: '691023', name: 'Jordan Walker', team: 'STL', position: ['LF', 'RF'] }, position: 'LF', isLocked: false },
+  { player: { id: uuidv4(), mlbamId: '621439', name: 'Byron Buxton', team: 'MIN', position: ['CF'] }, position: 'CF', isLocked: false },
+  { player: { id: uuidv4(), mlbamId: '665742', name: 'Juan Soto', team: 'NYM', position: ['LF', 'RF'] }, position: 'RF', isLocked: false },
+  { player: { id: uuidv4(), mlbamId: '650333', name: 'Luis Arraez', team: 'SD', position: ['1B', '2B'] }, position: 'UTIL', isLocked: false },
   
   // Bench Hitters
-  { player: { id: uuidv4(), mlbamId: '642239', name: 'Player 642239', team: 'CLE', position: ['1B'] }, position: 'BN', isLocked: false },
-  { player: { id: uuidv4(), mlbamId: '500779', name: 'Player 500779', team: 'TEX', position: ['OF'] }, position: 'BN', isLocked: false },
-  { player: { id: uuidv4(), mlbamId: '678011', name: 'Player 678011', team: 'SEA', position: ['OF'] }, position: 'BN', isLocked: false },
-  { player: { id: uuidv4(), mlbamId: '663368', name: 'Player 663368', team: 'MIL', position: ['2B'] }, position: 'BN', isLocked: false },
+  { player: { id: uuidv4(), mlbamId: '624413', name: 'Pete Alonso', team: 'NYM', position: ['1B'] }, position: 'BN', isLocked: false },
+  { player: { id: uuidv4(), mlbamId: '621043', name: 'Brandon Nimmo', team: 'NYM', position: ['LF', 'CF', 'RF'] }, position: 'BN', isLocked: false },
+  { player: { id: uuidv4(), mlbamId: '691738', name: 'Pete Crow-Armstrong', team: 'CHC', position: ['CF'] }, position: 'BN', isLocked: false },
+  { player: { id: uuidv4(), mlbamId: '680694', name: 'Steven Kwan', team: 'CLE', position: ['LF'] }, position: 'BN', isLocked: false },
   
   // IL Hitters
-  { player: { id: uuidv4(), mlbamId: '668964', name: 'Player 668964', team: 'SD', position: ['3B'] }, position: 'IL', isLocked: true },
-  { player: { id: uuidv4(), mlbamId: '694819', name: 'Player 694819', team: 'PHI', position: ['SS'] }, position: 'IL', isLocked: true },
+  { player: { id: uuidv4(), mlbamId: '676059', name: 'Jordan Westburg', team: 'BAL', position: ['2B', '3B'] }, position: 'IL', isLocked: true },
+  { player: { id: uuidv4(), mlbamId: '673548', name: 'Seiya Suzuki', team: 'CHC', position: ['LF', 'RF'] }, position: 'IL', isLocked: true },
   
   // Active Pitchers
-  { player: { id: uuidv4(), mlbamId: '669084', name: 'Player 669084', team: 'ARI', position: ['SP'] }, position: 'SP', isLocked: false },
-  { player: { id: uuidv4(), mlbamId: '606992', name: 'Player 606992', team: 'COL', position: ['SP'] }, position: 'SP', isLocked: false },
-  { player: { id: uuidv4(), mlbamId: '669003', name: 'Player 669003', team: 'MIA', position: ['RP'] }, position: 'RP', isLocked: false },
-  { player: { id: uuidv4(), mlbamId: '669145', name: 'Player 669145', team: 'PIT', position: ['RP'] }, position: 'RP', isLocked: false },
-  { player: { id: uuidv4(), mlbamId: '684974', name: 'Player 684974', team: 'CIN', position: ['SP'] }, position: 'P', isLocked: false },
-  { player: { id: uuidv4(), mlbamId: '605540', name: 'Player 605540', team: 'OAK', position: ['SP'] }, position: 'P', isLocked: false },
-  { player: { id: uuidv4(), mlbamId: '671162', name: 'Player 671162', team: 'DET', position: ['SP'] }, position: 'P', isLocked: false },
+  { player: { id: uuidv4(), mlbamId: '676979', name: 'Garrett Crochet', team: 'BOS', position: ['SP'] }, position: 'SP', isLocked: false },
+  { player: { id: uuidv4(), mlbamId: '650911', name: 'Cristopher Sánchez', team: 'PHI', position: ['SP'] }, position: 'SP', isLocked: false },
+  { player: { id: uuidv4(), mlbamId: '621242', name: 'Edwin Díaz', team: 'NYM', position: ['RP'] }, position: 'RP', isLocked: false },
+  { player: { id: uuidv4(), mlbamId: '605447', name: 'Jordan Romano', team: 'TOR', position: ['RP'] }, position: 'RP', isLocked: false },
+  { player: { id: uuidv4(), mlbamId: '682126', name: 'Eury Pérez', team: 'MIA', position: ['SP'] }, position: 'P', isLocked: false },
+  { player: { id: uuidv4(), mlbamId: '669062', name: 'Gavin Williams', team: 'CLE', position: ['SP'] }, position: 'P', isLocked: false },
+  { player: { id: uuidv4(), mlbamId: '684858', name: 'Shota Imanaga', team: 'CHC', position: ['SP'] }, position: 'P', isLocked: false },
   
   // IL Pitchers
-  { player: { id: uuidv4(), mlbamId: '692230', name: 'Player 692230', team: 'KC', position: ['RP'] }, position: 'IL', isLocked: true },
-  { player: { id: uuidv4(), mlbamId: '668834', name: 'Player 668834', team: 'BAL', position: ['SP'] }, position: 'IL', isLocked: true },
+  { player: { id: uuidv4(), mlbamId: '542881', name: 'Jason Adam', team: 'SD', position: ['RP'] }, position: 'IL', isLocked: true },
+  { player: { id: uuidv4(), mlbamId: '605483', name: 'Blake Snell', team: 'LAD', position: ['SP'] }, position: 'IL', isLocked: true },
+];
+
+// Waiver wire players (NOT on your roster - for recommendations)
+const WAIVER_WIRE: PoolPlayer[] = [
+  { player: { id: uuidv4(), mlbamId: '694817', name: 'Gunnar Henderson', team: 'BAL', position: ['SS', '3B'] }, isAvailable: true, lastUpdated: new Date().toISOString() },
+  { player: { id: uuidv4(), mlbamId: '682985', name: 'Corbin Carroll', team: 'ARI', position: ['LF', 'CF', 'RF'] }, isAvailable: true, lastUpdated: new Date().toISOString() },
+  { player: { id: uuidv4(), mlbamId: '660670', name: 'Bobby Witt Jr.', team: 'KC', position: ['SS'] }, isAvailable: true, lastUpdated: new Date().toISOString() },
+  { player: { id: uuidv4(), mlbamId: '677594', name: 'Julio Rodriguez', team: 'SEA', position: ['CF'] }, isAvailable: true, lastUpdated: new Date().toISOString() },
+  { player: { id: uuidv4(), mlbamId: '683011', name: 'Spencer Torkelson', team: 'DET', position: ['1B'] }, isAvailable: true, lastUpdated: new Date().toISOString() },
 ];
 
 export async function waiverTestRoutes(
   fastify: FastifyInstance,
   options: FastifyPluginOptions
 ) {
-  // POST /waiver/test-with-roster - Test waiver with hardcoded roster
+  // POST /waiver/test-with-roster - Test waiver with your real roster
   fastify.post('/test-with-roster', async (request, reply) => {
     const traceId = uuidv4();
     const now = new Date();
@@ -81,9 +90,9 @@ export async function waiverTestRoutes(
           { slot: 'IL', maxCount: 4, eligiblePositions: ['C', '1B', '2B', '3B', 'SS', 'OF', 'SP', 'RP'] },
         ],
       },
-      currentRoster: HARDCODED_ROSTER,
+      currentRoster: YOUR_ROSTER,
       availablePlayers: {
-        players: [],
+        players: WAIVER_WIRE,
         lastUpdated: now.toISOString(),
       },
       recommendationScope: 'add_drop',
@@ -114,34 +123,42 @@ export async function waiverTestRoutes(
 
     return {
       success: true,
-      message: 'Waiver recommendation request queued with hardcoded roster (DB player IDs)',
+      message: 'Waiver recommendation request queued with your real roster',
       requestId: decisionRequest.id,
       traceId,
       status: 'pending',
       rosterSummary: {
-        active: HARDCODED_ROSTER.filter(r => r.position !== 'BN' && r.position !== 'IL').length,
-        bench: HARDCODED_ROSTER.filter(r => r.position === 'BN').length,
-        il: HARDCODED_ROSTER.filter(r => r.position === 'IL').length,
-        total: HARDCODED_ROSTER.length,
+        active: YOUR_ROSTER.filter(r => r.position !== 'BN' && r.position !== 'IL').length,
+        bench: YOUR_ROSTER.filter(r => r.position === 'BN').length,
+        il: YOUR_ROSTER.filter(r => r.position === 'IL').length,
+        total: YOUR_ROSTER.length,
       },
+      waiverPool: WAIVER_WIRE.length,
       checkResultAt: `/waiver/${decisionRequest.id}/result`,
     };
   });
 
-  // GET /waiver/my-roster - View the hardcoded roster
+  // GET /waiver/my-roster - View your actual roster
   fastify.get('/my-roster', async (request, reply) => {
     return {
-      roster: HARDCODED_ROSTER.map(r => ({
+      roster: YOUR_ROSTER.map(r => ({
         mlbamId: r.player.mlbamId,
         name: r.player.name,
+        team: r.player.team,
         position: r.position,
         isLocked: r.isLocked,
       })),
+      waiverWire: WAIVER_WIRE.map(p => ({
+        mlbamId: p.player.mlbamId,
+        name: p.player.name,
+        team: p.player.team,
+      })),
       summary: {
-        active: HARDCODED_ROSTER.filter(r => r.position !== 'BN' && r.position !== 'IL').length,
-        bench: HARDCODED_ROSTER.filter(r => r.position === 'BN').length,
-        il: HARDCODED_ROSTER.filter(r => r.position === 'IL').length,
-        total: HARDCODED_ROSTER.length,
+        active: YOUR_ROSTER.filter(r => r.position !== 'BN' && r.position !== 'IL').length,
+        bench: YOUR_ROSTER.filter(r => r.position === 'BN').length,
+        il: YOUR_ROSTER.filter(r => r.position === 'IL').length,
+        total: YOUR_ROSTER.length,
+        waiverPool: WAIVER_WIRE.length,
       },
     };
   });

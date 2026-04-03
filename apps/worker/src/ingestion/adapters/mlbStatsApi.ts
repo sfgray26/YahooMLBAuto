@@ -24,12 +24,13 @@ type ApiResponse = any;
 export async function fetchPlayerStats(options: FetchOptions): Promise<RawPlayerStats[]> {
   const { season, gameType = 'R' } = options;
 
-  // MLB Stats API - hitting stats endpoint
+  // MLB Stats API - hitting stats endpoint with playerPool=all for complete data
   const url = new URL(`${MLB_STATS_BASE_URL}/stats`);
   url.searchParams.append('stats', 'season');
   url.searchParams.append('group', 'hitting');
   url.searchParams.append('season', season.toString());
   url.searchParams.append('gameType', gameType);
+  url.searchParams.append('playerPool', 'all');  // Required for all players
   url.searchParams.append('limit', '1000');
   url.searchParams.append('offset', '0');
 
