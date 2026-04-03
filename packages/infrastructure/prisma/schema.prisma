@@ -195,6 +195,72 @@ model WaiverResult {
 }
 
 // ============================================================================
+// Player Game Logs (for rolling 7/14/30 day stats)
+// ============================================================================
+
+model PlayerGameLog {
+  id String @id @default(uuid())
+
+  playerId      String
+  playerMlbamId String
+  season        Int
+
+  // Game info
+  gameDate   DateTime
+  gamePk     String // MLB game ID
+  homeTeamId String
+  awayTeamId String
+  isHomeGame Boolean
+
+  // Team context
+  teamId      String
+  teamMlbamId String
+  opponentId  String
+
+  // Stats
+  gamesPlayed    Int @default(0)
+  atBats         Int @default(0)
+  runs           Int @default(0)
+  hits           Int @default(0)
+  doubles        Int @default(0)
+  triples        Int @default(0)
+  homeRuns       Int @default(0)
+  rbi            Int @default(0)
+  stolenBases    Int @default(0)
+  caughtStealing Int @default(0)
+  walks          Int @default(0)
+  strikeouts     Int @default(0)
+  hitByPitch     Int @default(0)
+  sacrificeFlies Int @default(0)
+  groundIntoDp   Int @default(0)
+  leftOnBase     Int @default(0)
+
+  // Plate appearances (calculated: AB + BB + HBP + SF)
+  plateAppearances Int @default(0)
+
+  // Total bases (calculated: H + 2B + 2*3B + 3*HR)
+  totalBases Int @default(0)
+
+  // Position played
+  position String?
+
+  // Source
+  rawDataSource String @default("mlb_stats_api")
+
+  // Audit
+  ingestedAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // Natural key
+  @@unique([playerMlbamId, gamePk])
+  @@index([playerId])
+  @@index([playerMlbamId])
+  @@index([gameDate])
+  @@index([season])
+  @@map("player_game_logs")
+}
+
+// ============================================================================
 // Raw Ingestion Log (Step 2: Store raw payloads before normalization)
 // ============================================================================
 
