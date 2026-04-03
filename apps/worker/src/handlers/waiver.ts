@@ -55,14 +55,27 @@ export async function handleWaiverRecommendation(
   console.log('[WAIVER] Available players with scores:', availablePlayers.length);
 
   // Step 2: Assemble waiver decisions
+  // Build teamState from request data
+  const rosterPlayers = request.currentRoster.map(slot => ({
+    playerId: slot.player.id,
+    mlbamId: slot.player.mlbamId,
+    name: slot.player.name,
+    team: slot.player.team,
+    positions: slot.player.position,
+    currentPosition: slot.position,
+    isLocked: slot.isLocked,
+    isInjured: slot.position === 'IL',
+    injuryStatus: slot.position === 'IL' ? 'injured_list' : 'healthy',
+  }));
+
   const assemblyInput: WaiverAssemblyInput = {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     teamState: {
       identity: {
-        teamId: 'stub-team-id',
-        leagueId: 'stub-league-id',
-        teamName: 'Team',
-        leagueName: 'League',
+        teamId: 'uat-team',
+        leagueId: 'uat-league',
+        teamName: 'Your Team',
+        leagueName: 'UAT League',
         platform: 'yahoo',
         season: 2025,
         scoringPeriod: {
@@ -75,19 +88,44 @@ export async function handleWaiverRecommendation(
       roster: {
         version: 1,
         lastUpdated: new Date().toISOString(),
-        players: [],
+        players: rosterPlayers,
       },
       lineupConfig: {
-        slots: [],
-        totalSlots: 0,
-        hittingSlots: 0,
-        pitchingSlots: 0,
-        benchSlots: 0,
+        slots: [
+          { slot: 'C', domain: 'hitting', eligiblePositions: ['C'] },
+          { slot: '1B', domain: 'hitting', eligiblePositions: ['1B'] },
+          { slot: '2B', domain: 'hitting', eligiblePositions: ['2B'] },
+          { slot: '3B', domain: 'hitting', eligiblePositions: ['3B'] },
+          { slot: 'SS', domain: 'hitting', eligiblePositions: ['SS'] },
+          { slot: 'OF', domain: 'hitting', eligiblePositions: ['LF', 'CF', 'RF', 'OF'] },
+          { slot: 'UTIL', domain: 'hitting', eligiblePositions: ['C', '1B', '2B', '3B', 'SS', 'OF'] },
+          { slot: 'SP', domain: 'pitching', eligiblePositions: ['SP'] },
+          { slot: 'RP', domain: 'pitching', eligiblePositions: ['RP'] },
+          { slot: 'P', domain: 'pitching', eligiblePositions: ['SP', 'RP'] },
+          { slot: 'BN', domain: 'flex', eligiblePositions: ['C', '1B', '2B', '3B', 'SS', 'OF', 'SP', 'RP'] },
+        ],
+        totalSlots: 23,
+        hittingSlots: 14,
+        pitchingSlots: 9,
+        benchSlots: 5,
       },
       currentLineup: {
-        assignments: [],
-        lockedSlots: [],
-        benchAssignments: [],
+        assignments: request.currentRoster
+          .filter(s => s.position !== 'BN' && s.position !== 'IL')
+          .map(s => ({
+            slot: s.position,
+            playerId: s.player.id,
+            isLocked: s.isLocked,
+          })),
+        lockedSlots: request.currentRoster
+          .filter(s => s.isLocked)
+          .map(s => s.position),
+        benchAssignments: request.currentRoster
+          .filter(s => s.position === 'BN')
+          .map(s => ({
+            playerId: s.player.id,
+            reason: 'bench',
+          })),
       },
       waiverState: {
         budgetTotal: 100,
