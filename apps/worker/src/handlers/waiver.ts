@@ -116,7 +116,7 @@ async function getPlayerScores(
   request: WaiverRecommendationRequest
 ): Promise<Map<string, PlayerScore>> {
   const playerScores = new Map<string, PlayerScore>();
-  const season = new Date().getFullYear(); // Use current year
+  const season = 2025; // Hardcoded for UAT - database has 2025 data
 
   // Collect all mlbamIds from roster and available players
   const rosterIds = request.currentRoster.map((s) => s.player.mlbamId);
