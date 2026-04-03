@@ -9,7 +9,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { prisma } from '@cbb/infrastructure';
 import type { WaiverRecommendationRequest, WaiverRecommendationResult } from '@cbb/core';
 
-import { assembleWaiverDecisions, type WaiverAssemblyInput } from '../decisions/index.js';
+import { assembleWaiverDecisions, type WaiverAssemblyInput, type AvailablePlayer } from '../decisions/index.js';
 import type { PlayerScore } from '../scoring/index.js';
 
 export async function handleWaiverRecommendation(
@@ -30,17 +30,25 @@ export async function handleWaiverRecommendation(
 
   // Build hitter scores map and available players list
   const hitterScores = new Map<string, PlayerScore>();
-  const availablePlayers: PlayerScore[] = [];
+  const availablePlayers: AvailablePlayer[] = [];
 
   for (const [mlbamId, score] of playerScores) {
     hitterScores.set(mlbamId, score);
     
     // Check if this player is in available pool
-    const isAvailable = request.availablePlayers.players.some(
+    const availablePoolPlayer = request.availablePlayers.players.find(
       p => p.player.mlbamId === mlbamId && p.isAvailable
     );
-    if (isAvailable) {
-      availablePlayers.push(score);
+    if (availablePoolPlayer) {
+      availablePlayers.push({
+        playerId: score.playerId,
+        mlbamId: score.playerMlbamId,
+        name: availablePoolPlayer.player.name,
+        team: availablePoolPlayer.player.team,
+        positions: availablePoolPlayer.player.position,
+        percentOwned: 85, // Default for UAT
+        percentStarted: 65, // Default for UAT
+      });
     }
   }
 
