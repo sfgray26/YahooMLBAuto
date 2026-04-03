@@ -223,13 +223,31 @@ export async function computeDerivedStatsFromGameLogs(
   playerId: string,
   playerMlbamId: string,
   season: number,
-  asOfDate: Date = new Date()
+  asOfDate?: Date
 ): Promise<ComputedDerivedStats | null> {
+  // Determine the reference date for rolling calculations
+  // If not provided, use the latest game date for this player/season
+  let referenceDate = asOfDate;
+  
+  if (!referenceDate) {
+    const latestGame = await prisma.playerGameLog.findFirst({
+      where: { playerMlbamId, season },
+      orderBy: { gameDate: 'desc' },
+      select: { gameDate: true },
+    });
+    
+    if (!latestGame) {
+      return null;
+    }
+    
+    referenceDate = latestGame.gameDate;
+  }
+
   // Get rolling stats for each window
   const [stats7, stats14, stats30] = await Promise.all([
-    computeRollingStats(playerMlbamId, season, 7, asOfDate),
-    computeRollingStats(playerMlbamId, season, 14, asOfDate),
-    computeRollingStats(playerMlbamId, season, 30, asOfDate),
+    computeRollingStats(playerMlbamId, season, 7, referenceDate),
+    computeRollingStats(playerMlbamId, season, 14, referenceDate),
+    computeRollingStats(playerMlbamId, season, 30, referenceDate),
   ]);
 
   // Need at least some games
@@ -241,14 +259,14 @@ export async function computeDerivedStatsFromGameLogs(
   const { zeroHitGames, multiHitGames } = await countHitOutcomes(
     playerMlbamId,
     season,
-    asOfDate
+    referenceDate
   );
 
   // Compute volatility
   const { productionVolatility, hitConsistencyScore } = await computeVolatilityMetrics(
     playerMlbamId,
     season,
-    asOfDate
+    referenceDate
   );
 
   // Calculate rates from 30-day window
