@@ -28,8 +28,25 @@ export async function handleWaiverRecommendation(
 
   console.log('[WAIVER] Retrieved scores for', playerScores.size, 'players');
 
+  // Build hitter scores map and available players list
+  const hitterScores = new Map<string, PlayerScore>();
+  const availablePlayers: PlayerScore[] = [];
+
+  for (const [mlbamId, score] of playerScores) {
+    hitterScores.set(mlbamId, score);
+    
+    // Check if this player is in available pool
+    const isAvailable = request.availablePlayers.players.some(
+      p => p.player.mlbamId === mlbamId && p.isAvailable
+    );
+    if (isAvailable) {
+      availablePlayers.push(score);
+    }
+  }
+
+  console.log('[WAIVER] Available players with scores:', availablePlayers.length);
+
   // Step 2: Assemble waiver decisions
-  // TODO: Refactor to use TeamState - stubbed for now
   const assemblyInput: WaiverAssemblyInput = {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     teamState: {
@@ -39,7 +56,7 @@ export async function handleWaiverRecommendation(
         teamName: 'Team',
         leagueName: 'League',
         platform: 'yahoo',
-        season: new Date().getFullYear(),
+        season: 2025,
         scoringPeriod: {
           type: 'daily',
           startDate: new Date().toISOString(),
@@ -72,9 +89,9 @@ export async function handleWaiverRecommendation(
         nextWaiverProcess: null,
       },
     } as any,
-    hitterScores: new Map(),
+    hitterScores,
     pitcherScores: new Map(),
-    availablePlayers: [],
+    availablePlayers,
   };
 
   const assemblyResult = assembleWaiverDecisions(assemblyInput);
