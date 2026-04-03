@@ -203,12 +203,14 @@ export async function adminRoutes(
   // Seed database with real MLB players for UAT
   // ==========================================================================
   fastify.post('/seed-uat', async (request, reply) => {
-    console.log('[ADMIN] Seeding UAT data with real MLB players...');
+    const { season } = request.body as { season?: number } || {};
+    const targetSeason = season || 2026;
+    console.log(`[ADMIN] Seeding UAT data with real MLB players for ${targetSeason}...`);
     
     try {
-      // Clear old data
-      await prisma.playerDerivedStats.deleteMany({ where: { season: 2025 } });
-      await prisma.playerDailyStats.deleteMany({ where: { season: 2025 } });
+      // Clear old UAT data for the target season
+      await prisma.playerDerivedStats.deleteMany({ where: { season: targetSeason, traceId: 'uat-seed' } });
+      await prisma.playerDailyStats.deleteMany({ where: { season: targetSeason, rawDataSource: 'uat_seed' } });
       
       let seededCount = 0;
       
@@ -223,8 +225,8 @@ export async function adminRoutes(
           data: {
             playerId,
             playerMlbamId: player.mlbamId,
-            statDate: new Date('2025-09-30'),
-            season: 2025,
+            statDate: new Date(`${targetSeason}-09-30`),
+            season: targetSeason,
             teamId: player.team,
             teamMlbamId: player.team,
             gamesPlayed: player.games,
@@ -250,7 +252,7 @@ export async function adminRoutes(
           data: {
             playerId,
             playerMlbamId: player.mlbamId,
-            season: 2025,
+            season: targetSeason,
             gamesLast7: 6,
             gamesLast14: 12,
             gamesLast30: 25,
@@ -518,6 +520,8 @@ export async function adminRoutes(
           strikeouts: true,
           stolenBases: true,
           plateAppearances: true,
+          hitByPitch: true,
+          sacrificeFlies: true,
         },
       });
 
@@ -528,6 +532,7 @@ export async function adminRoutes(
       let cumulativeTB = 0;
       let cumulativeBB = 0;
       let cumulativeHBP = 0;
+      let cumulativeSF = 0;
 
       const gamesWithTotals = gameLogs.map((game) => {
         cumulativePA += game.plateAppearances;
@@ -535,10 +540,12 @@ export async function adminRoutes(
         cumulativeAB += game.atBats;
         cumulativeTB += (game.hits + game.doubles + game.triples * 2 + game.homeRuns * 3);
         cumulativeBB += game.walks;
-        cumulativeHBP += 0; // Not tracking HBP in simplified model
+        cumulativeHBP += game.hitByPitch || 0;
+        cumulativeSF += game.sacrificeFlies || 0;
 
         const avg = cumulativeAB > 0 ? (cumulativeHits / cumulativeAB).toFixed(3) : '.000';
-        const obp = cumulativePA > 0 ? ((cumulativeHits + cumulativeBB + cumulativeHBP) / cumulativePA).toFixed(3) : '.000';
+        const obpDenominator = cumulativeAB + cumulativeBB + cumulativeHBP + cumulativeSF;
+        const obp = obpDenominator > 0 ? ((cumulativeHits + cumulativeBB + cumulativeHBP) / obpDenominator).toFixed(3) : '.000';
         const slg = cumulativeAB > 0 ? (cumulativeTB / cumulativeAB).toFixed(3) : '.000';
 
         return {
@@ -933,121 +940,3 @@ export async function adminRoutes(
       console.error('[ADMIN] Fetch derived stats error:', error);
       return reply.status(500).send({
         success: false,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  });
-
-  // ==========================================================================
-  // GET /admin/debug-game-logs/:mlbamId
-  // Debug endpoint to check raw game log values
-  // ==========================================================================
-  fastify.get<{
-    Params: {
-      mlbamId: string;
-    };
-    Querystring: {
-      season?: string;
-    };
-  }>('/debug-game-logs/:mlbamId', async (request, reply) => {
-    const { mlbamId } = request.params;
-    const season = parseInt(request.query.season || '2026');
-    
-    console.log(`[ADMIN] Debug game logs for: ${mlbamId}, season: ${season}`);
-    
-    try {
-      const gameLogs = await prisma.playerGameLog.findMany({
-        where: { playerMlbamId: mlbamId, season },
-        orderBy: { gameDate: 'desc' },
-      });
-      
-      if (gameLogs.length === 0) {
-        return reply.status(404).send({
-          success: false,
-          error: 'No game logs found',
-        });
-      }
-      
-      // Calculate aggregates
-      const totals = gameLogs.reduce((acc, g) => ({
-        games: acc.games + 1,
-        atBats: acc.atBats + g.atBats,
-        hits: acc.hits + g.hits,
-        homeRuns: acc.homeRuns + g.homeRuns,
-        strikeouts: acc.strikeouts + g.strikeouts,
-        sacrificeFlies: acc.sacrificeFlies + (g.sacrificeFlies || 0),
-        plateAppearances: acc.plateAppearances + g.plateAppearances,
-      }), { games: 0, atBats: 0, hits: 0, homeRuns: 0, strikeouts: 0, sacrificeFlies: 0, plateAppearances: 0 });
-      
-      // Calculate BABIP components
-      const hitsMinusHR = totals.hits - totals.homeRuns;
-      const ballsInPlay = totals.atBats - totals.strikeouts - totals.homeRuns + totals.sacrificeFlies;
-      const babip = ballsInPlay > 0 ? hitsMinusHR / ballsInPlay : null;
-      
-      return {
-        success: true,
-        mlbamId,
-        season,
-        totals,
-        babipCalculation: {
-          hitsMinusHR,
-          ballsInPlay,
-          babip,
-        },
-        sampleGame: gameLogs[0],
-      };
-    } catch (error) {
-      console.error('[ADMIN] Debug game logs error:', error);
-      return reply.status(500).send({
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  });
-
-  // ==========================================================================
-  // GET /admin/debug-derived-all/:mlbamId
-  // Debug endpoint to check all derived stats records for a player
-  // ==========================================================================
-  fastify.get<{
-    Params: {
-      mlbamId: string;
-    };
-    Querystring: {
-      season?: string;
-    };
-  }>('/debug-derived-all/:mlbamId', async (request, reply) => {
-    const { mlbamId } = request.params;
-    const season = parseInt(request.query.season || '2026');
-    
-    console.log(`[ADMIN] Debug all derived stats for: ${mlbamId}, season: ${season}`);
-    
-    try {
-      const records = await prisma.playerDerivedStats.findMany({
-        where: { playerMlbamId: mlbamId, season },
-        orderBy: { computedAt: 'desc' },
-        take: 5,
-      });
-      
-      return {
-        success: true,
-        mlbamId,
-        season,
-        count: records.length,
-        records: records.map(r => ({
-          computedAt: r.computedAt,
-          computedDate: r.computedDate,
-          babipLast30: r.babipLast30,
-          opsLast30: r.opsLast30,
-          gamesLast30: r.gamesLast30,
-        })),
-      };
-    } catch (error) {
-      console.error('[ADMIN] Debug derived stats error:', error);
-      return reply.status(500).send({
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  });
-}

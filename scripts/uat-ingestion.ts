@@ -14,7 +14,7 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 const MLB_STATS_BASE_URL = 'https://statsapi.mlb.com/api/v1';
-const TEST_SEASON = 2025;
+const TEST_SEASON = 2026;
 const TEST_GAME_TYPE = 'R';
 
 interface TestResult {
