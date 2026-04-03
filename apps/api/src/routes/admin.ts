@@ -845,4 +845,94 @@ export async function adminRoutes(
       });
     }
   });
+
+  // ==========================================================================
+  // GET /admin/derived-stats/:mlbamId
+  // Check derived stats for a player
+  // ==========================================================================
+  fastify.get<{
+    Params: {
+      mlbamId: string;
+    };
+    Querystring: {
+      season?: string;
+    };
+  }>('/derived-stats/:mlbamId', async (request, reply) => {
+    const { mlbamId } = request.params;
+    const season = parseInt(request.query.season || '2026');
+    
+    console.log(`[ADMIN] Fetching derived stats for: ${mlbamId}, season: ${season}`);
+    
+    try {
+      const derived = await prisma.playerDerivedStats.findFirst({
+        where: { playerMlbamId: mlbamId, season },
+        orderBy: { computedAt: 'desc' },
+      });
+      
+      if (!derived) {
+        return reply.status(404).send({
+          success: false,
+          error: 'No derived stats found',
+          mlbamId,
+          season,
+        });
+      }
+      
+      return {
+        success: true,
+        mlbamId,
+        season,
+        computedAt: derived.computedAt,
+        computedDate: derived.computedDate,
+        volume: {
+          gamesLast7: derived.gamesLast7,
+          gamesLast14: derived.gamesLast14,
+          gamesLast30: derived.gamesLast30,
+          plateAppearancesLast7: derived.plateAppearancesLast7,
+          plateAppearancesLast14: derived.plateAppearancesLast14,
+          plateAppearancesLast30: derived.plateAppearancesLast30,
+          atBatsLast30: derived.atBatsLast30,
+        },
+        rates: {
+          battingAverageLast30: derived.battingAverageLast30,
+          onBasePctLast30: derived.onBasePctLast30,
+          sluggingPctLast30: derived.sluggingPctLast30,
+          opsLast30: derived.opsLast30,
+          isoLast30: derived.isoLast30,
+          walkRateLast30: derived.walkRateLast30,
+          strikeoutRateLast30: derived.strikeoutRateLast30,
+        },
+        reliability: {
+          battingAverageReliable: derived.battingAverageReliable,
+          obpReliable: derived.obpReliable,
+          slgReliable: derived.slgReliable,
+          opsReliable: derived.opsReliable,
+          gamesToReliable: derived.gamesToReliable,
+        },
+        volatility: {
+          hitConsistencyScore: derived.hitConsistencyScore,
+          productionVolatility: derived.productionVolatility,
+          zeroHitGamesLast14: derived.zeroHitGamesLast14,
+          multiHitGamesLast14: derived.multiHitGamesLast14,
+        },
+        hasNulls: {
+          rates: {
+            battingAverageLast30: derived.battingAverageLast30 === null,
+            onBasePctLast30: derived.onBasePctLast30 === null,
+            sluggingPctLast30: derived.sluggingPctLast30 === null,
+            opsLast30: derived.opsLast30 === null,
+            isoLast30: derived.isoLast30 === null,
+            walkRateLast30: derived.walkRateLast30 === null,
+            strikeoutRateLast30: derived.strikeoutRateLast30 === null,
+          }
+        }
+      };
+    } catch (error) {
+      console.error('[ADMIN] Fetch derived stats error:', error);
+      return reply.status(500).send({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
 }
