@@ -8,3 +8,10 @@
 
 export { runDailyIngestion, validateIngestion } from './orchestrator.js';
 export type { IngestionConfig, IngestionResult } from './orchestrator.js';
+
+// Game Log Ingestion
+export {
+  fetchPlayerGameLogsFromApi,
+  storeGameLogs,
+  ingestGameLogsForPlayers,
+} from './gameLogs.js';

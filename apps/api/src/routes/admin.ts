@@ -7,6 +7,7 @@
 
 import type { FastifyInstance, FastifyPluginOptions } from 'fastify';
 import { runDailyIngestion, validateIngestion } from '@cbb/worker';
+import { ingestGameLogsForPlayers, batchComputeDerivedStatsFromGameLogs } from '@cbb/worker';
 import { prisma } from '@cbb/infrastructure';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -301,6 +302,94 @@ export async function adminRoutes(
       return reply.status(500).send({
         success: false,
         error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  // ==========================================================================
+  // POST /admin/ingest-game-logs
+  // Ingest game-by-game stats for specific players
+  // ==========================================================================
+  fastify.post('/ingest-game-logs', async (request, reply) => {
+    const { playerIds, season } = request.body as {
+      playerIds?: string[]; // Array of MLBAM IDs
+      season?: number;
+    };
+
+    const targetSeason = season || new Date().getFullYear();
+    const traceId = uuidv4();
+
+    console.log(`[ADMIN] Ingesting game logs for season ${targetSeason}...`);
+
+    if (!playerIds || playerIds.length === 0) {
+      return reply.status(400).send({
+        success: false,
+        error: 'playerIds required',
+        message: 'Provide array of MLBAM IDs to ingest game logs for',
+      });
+    }
+
+    try {
+      const players = playerIds.map((mlbamId) => ({
+        playerId: `mlbam:${mlbamId}`,
+        mlbamId,
+      }));
+
+      const startTime = Date.now();
+      const result = await ingestGameLogsForPlayers(players, targetSeason, traceId);
+      const durationMs = Date.now() - startTime;
+
+      return {
+        success: true,
+        message: `Ingested game logs for ${result.totalPlayers} players`,
+        season: targetSeason,
+        durationMs,
+        totalGames: result.totalGames,
+        errors: result.errors.length > 0 ? result.errors : undefined,
+        traceId,
+      };
+    } catch (error) {
+      console.error('[ADMIN] Game log ingestion error:', error);
+      return reply.status(500).send({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        traceId,
+      });
+    }
+  });
+
+  // ==========================================================================
+  // POST /admin/compute-derived-from-logs
+  // Compute derived stats from stored game logs
+  // ==========================================================================
+  fastify.post('/compute-derived-from-logs', async (request, reply) => {
+    const { season } = request.body as { season?: number };
+
+    const targetSeason = season || new Date().getFullYear();
+    const traceId = uuidv4();
+
+    console.log(`[ADMIN] Computing derived stats from game logs for season ${targetSeason}...`);
+
+    try {
+      const startTime = Date.now();
+      const result = await batchComputeDerivedStatsFromGameLogs(targetSeason, new Date(), traceId);
+      const durationMs = Date.now() - startTime;
+
+      return {
+        success: true,
+        message: `Computed derived stats for ${result.processed} players`,
+        season: targetSeason,
+        durationMs,
+        processed: result.processed,
+        errors: result.errors.length > 0 ? result.errors : undefined,
+        traceId,
+      };
+    } catch (error) {
+      console.error('[ADMIN] Derived stats computation error:', error);
+      return reply.status(500).send({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        traceId,
       });
     }
   });
