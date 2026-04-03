@@ -669,4 +669,58 @@ export async function adminRoutes(
       });
     }
   });
+
+  // ==========================================================================
+  // POST /admin/migrate-verified-players
+  // Run database migration for VerifiedPlayer table
+  // ==========================================================================
+  fastify.post('/migrate-verified-players', async (_request, reply) => {
+    console.log('[ADMIN] Running VerifiedPlayer migration...');
+    
+    try {
+      // Create the verified_players table
+      await prisma.$executeRaw`
+        CREATE TABLE IF NOT EXISTS "verified_players" (
+          "mlbamId" TEXT NOT NULL,
+          "fullName" TEXT NOT NULL,
+          "team" TEXT,
+          "position" TEXT,
+          "verifiedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "verificationSource" TEXT NOT NULL DEFAULT 'mlb_api',
+          "lastChecked" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "isActive" BOOLEAN NOT NULL DEFAULT true,
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP(3) NOT NULL,
+          "baseballReferenceId" TEXT,
+          "crossValidatedAt" TIMESTAMP(3),
+          CONSTRAINT "verified_players_pkey" PRIMARY KEY ("mlbamId")
+        );
+      `;
+      
+      // Create indexes
+      await prisma.$executeRaw`
+        CREATE INDEX IF NOT EXISTS "verified_players_isActive_idx" ON "verified_players"("isActive");
+      `;
+      await prisma.$executeRaw`
+        CREATE INDEX IF NOT EXISTS "verified_players_lastChecked_idx" ON "verified_players"("lastChecked");
+      `;
+      await prisma.$executeRaw`
+        CREATE INDEX IF NOT EXISTS "verified_players_fullName_idx" ON "verified_players"("fullName");
+      `;
+      
+      console.log('[ADMIN] VerifiedPlayer migration completed successfully');
+      
+      return {
+        success: true,
+        message: 'VerifiedPlayer table created successfully',
+        table: 'verified_players',
+      };
+    } catch (error) {
+      console.error('[ADMIN] Migration failed:', error);
+      return reply.status(500).send({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
 }
