@@ -194,9 +194,7 @@ async function storeDerived(
       season: SEASON,
       ...features,
       traceId: `compute-${variant}-${Date.now()}`,
-      computedAt: new Date(),
       computedDate: new Date(),
-      createdAt: new Date(),
       updatedAt: new Date(),
     },
   });
