@@ -11,7 +11,7 @@ import type { WaiverRecommendationRequest, RosterSlot, PoolPlayer } from '@cbb/c
 // Your actual roster with REAL MLBAM IDs
 const YOUR_ROSTER: RosterSlot[] = [
   // Active Hitters
-  { player: { id: uuidv4(), mlbamId: '669128', name: 'Yainer Diaz', team: 'HOU', position: ['C'] }, position: 'C', isLocked: false },
+  { player: { id: uuidv4(), mlbamId: '673237', name: 'Yainer Diaz', team: 'HOU', position: ['C'] }, position: 'C', isLocked: false },
   { player: { id: uuidv4(), mlbamId: '686469', name: 'Vinnie Pasquantino', team: 'KC', position: ['1B'] }, position: '1B', isLocked: false },
   { player: { id: uuidv4(), mlbamId: '543760', name: 'Marcus Semien', team: 'TEX', position: ['2B'] }, position: '2B', isLocked: false },
   { player: { id: uuidv4(), mlbamId: '656305', name: 'Matt Chapman', team: 'SF', position: ['3B'] }, position: '3B', isLocked: false },

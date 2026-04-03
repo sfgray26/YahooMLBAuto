@@ -13,7 +13,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 // UAT Seed Data - Real MLB Players
 const UAT_ROSTER = [
-  { mlbamId: '669128', name: 'Yainer Diaz', team: 'HOU', position: 'C', games: 142, avg: '.278', ops: '.825' },
+  { mlbamId: '673237', name: 'Yainer Diaz', team: 'HOU', position: 'C', games: 142, avg: '.278', ops: '.825' },
   { mlbamId: '686469', name: 'Vinnie Pasquantino', team: 'KC', position: '1B', games: 135, avg: '.265', ops: '.810' },
   { mlbamId: '543760', name: 'Marcus Semien', team: 'TEX', position: '2B', games: 158, avg: '.258', ops: '.780' },
   { mlbamId: '656305', name: 'Matt Chapman', team: 'SF', position: '3B', games: 148, avg: '.245', ops: '.790' },

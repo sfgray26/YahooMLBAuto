@@ -8,7 +8,7 @@ import { prisma } from '@cbb/infrastructure';
 // Your actual roster with real MLBAM IDs
 const YOUR_ROSTER = [
   // C
-  { mlbamId: '669128', name: 'Yainer Diaz', team: 'HOU', position: 'C', games: 142, avg: '.278', ops: '.825' },
+  { mlbamId: '673237', name: 'Yainer Diaz', team: 'HOU', position: 'C', games: 142, avg: '.278', ops: '.825' },
   // 1B
   { mlbamId: '686469', name: 'Vinnie Pasquantino', team: 'KC', position: '1B', games: 135, avg: '.265', ops: '.810' },
   // 2B
