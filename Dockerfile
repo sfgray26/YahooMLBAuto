@@ -78,4 +78,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
 
 # Default command (overridden by Railway service config)
 # Run db push first to create tables from schema, then start the server
-CMD ["sh", "-c", "cd packages/infrastructure && npx prisma@5.22.0 migrate deploy && cd /app && node apps/api/dist/server.js"]
+CMD ["sh", "-c", "cd packages/infrastructure && npx prisma@5.22.0 db push --accept-data-loss && cd /app && node apps/api/dist/server.js"]

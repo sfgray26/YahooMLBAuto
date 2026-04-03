@@ -359,6 +359,95 @@ export async function adminRoutes(
   });
 
   // ==========================================================================
+  // POST /admin/migrate-game-logs
+  // Run migration to create PlayerGameLog table
+  // ==========================================================================
+  fastify.post('/migrate-game-logs', async (request, reply) => {
+    console.log('[ADMIN] Running game logs migration...');
+    
+    try {
+      // Create the table using raw SQL
+      await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "player_game_logs" (
+          "id" TEXT NOT NULL,
+          "playerId" TEXT NOT NULL,
+          "playerMlbamId" TEXT NOT NULL,
+          "season" INTEGER NOT NULL,
+          "gameDate" TIMESTAMP(3) NOT NULL,
+          "gamePk" TEXT NOT NULL,
+          "homeTeamId" TEXT NOT NULL,
+          "awayTeamId" TEXT NOT NULL,
+          "isHomeGame" BOOLEAN NOT NULL,
+          "teamId" TEXT NOT NULL,
+          "teamMlbamId" TEXT NOT NULL,
+          "opponentId" TEXT NOT NULL,
+          "gamesPlayed" INTEGER NOT NULL DEFAULT 0,
+          "atBats" INTEGER NOT NULL DEFAULT 0,
+          "runs" INTEGER NOT NULL DEFAULT 0,
+          "hits" INTEGER NOT NULL DEFAULT 0,
+          "doubles" INTEGER NOT NULL DEFAULT 0,
+          "triples" INTEGER NOT NULL DEFAULT 0,
+          "homeRuns" INTEGER NOT NULL DEFAULT 0,
+          "rbi" INTEGER NOT NULL DEFAULT 0,
+          "stolenBases" INTEGER NOT NULL DEFAULT 0,
+          "caughtStealing" INTEGER NOT NULL DEFAULT 0,
+          "walks" INTEGER NOT NULL DEFAULT 0,
+          "strikeouts" INTEGER NOT NULL DEFAULT 0,
+          "hitByPitch" INTEGER NOT NULL DEFAULT 0,
+          "sacrificeFlies" INTEGER NOT NULL DEFAULT 0,
+          "groundIntoDp" INTEGER NOT NULL DEFAULT 0,
+          "leftOnBase" INTEGER NOT NULL DEFAULT 0,
+          "plateAppearances" INTEGER NOT NULL DEFAULT 0,
+          "totalBases" INTEGER NOT NULL DEFAULT 0,
+          "position" TEXT,
+          "rawDataSource" TEXT NOT NULL DEFAULT 'mlb_stats_api',
+          "ingestedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP(3) NOT NULL,
+          CONSTRAINT "player_game_logs_pkey" PRIMARY KEY ("id")
+        )
+      `);
+      
+      // Create unique index
+      await prisma.$executeRawUnsafe(`
+        CREATE UNIQUE INDEX IF NOT EXISTS "player_game_logs_playerMlbamId_gamePk_key" 
+          ON "player_game_logs"("playerMlbamId", "gamePk")
+      `);
+      
+      // Create indexes
+      await prisma.$executeRawUnsafe(`
+        CREATE INDEX IF NOT EXISTS "player_game_logs_playerId_idx" 
+          ON "player_game_logs"("playerId")
+      `);
+      
+      await prisma.$executeRawUnsafe(`
+        CREATE INDEX IF NOT EXISTS "player_game_logs_playerMlbamId_idx" 
+          ON "player_game_logs"("playerMlbamId")
+      `);
+      
+      await prisma.$executeRawUnsafe(`
+        CREATE INDEX IF NOT EXISTS "player_game_logs_gameDate_idx" 
+          ON "player_game_logs"("gameDate")
+      `);
+      
+      await prisma.$executeRawUnsafe(`
+        CREATE INDEX IF NOT EXISTS "player_game_logs_season_idx" 
+          ON "player_game_logs"("season")
+      `);
+      
+      return {
+        success: true,
+        message: 'PlayerGameLog table created successfully',
+      };
+    } catch (error) {
+      console.error('[ADMIN] Migration error:', error);
+      return reply.status(500).send({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  // ==========================================================================
   // POST /admin/compute-derived-from-logs
   // Compute derived stats from stored game logs
   // ==========================================================================
