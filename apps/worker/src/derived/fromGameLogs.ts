@@ -325,7 +325,7 @@ export async function computeDerivedStatsFromGameLogs(
  */
 export async function batchComputeDerivedStatsFromGameLogs(
   season: number,
-  asOfDate: Date = new Date(),
+  asOfDate: Date | undefined,
   traceId: string
 ): Promise<{
   processed: number;
@@ -354,8 +354,8 @@ export async function batchComputeDerivedStatsFromGameLogs(
         continue;
       }
 
-      // Store in database
-      const computedDate = new Date(asOfDate);
+      // Store in database - use the reference date or today
+      const computedDate = asOfDate ? new Date(asOfDate) : new Date();
       computedDate.setHours(0, 0, 0, 0);
 
       await prisma.playerDerivedStats.upsert({

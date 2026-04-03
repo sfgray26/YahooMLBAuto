@@ -461,7 +461,8 @@ export async function adminRoutes(
 
     try {
       const startTime = Date.now();
-      const result = await batchComputeDerivedStatsFromGameLogs(targetSeason, new Date(), traceId);
+      // Pass undefined for asOfDate to use the latest game date in the dataset
+      const result = await batchComputeDerivedStatsFromGameLogs(targetSeason, undefined, traceId);
       const durationMs = Date.now() - startTime;
 
       return {
