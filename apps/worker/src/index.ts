@@ -6,7 +6,7 @@
 
 // Ingestion
 export { runDailyIngestion, validateIngestion } from './ingestion/index.js';
-export { fetchPlayerGameLogsFromApi, storeGameLogs, ingestGameLogsForPlayers } from './ingestion/gameLogs.js';
+export { fetchPlayerGameLogsFromApi, storeGameLogs, ingestGameLogsForPlayers, ingestGameLogsWithValidation } from './ingestion/gameLogs.js';
 
 // Derived Stats
 export {
@@ -16,3 +16,12 @@ export {
 
 // Monte Carlo
 export { simulatePlayerOutcome, simulatePlayerOutcomes, comparePlayers } from './monte-carlo/index.js';
+
+// Validation
+export {
+  validatePlayerIdentity,
+  validatePlayerBatch,
+  lookupPlayerByName,
+  suggestCorrectId,
+} from './validation/playerIdentity.js';
+export type { PlayerIdentity, ValidationResult } from './validation/playerIdentity.js';

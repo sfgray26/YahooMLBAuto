@@ -7,6 +7,7 @@
 
 import { prisma } from '@cbb/infrastructure';
 import type { PlayerGameLog } from '@cbb/infrastructure';
+import { validatePlayerIdentity } from '../validation/playerIdentity.js';
 
 const MLB_STATS_BASE_URL = 'https://statsapi.mlb.com/api/v1';
 
@@ -295,5 +296,98 @@ export async function ingestGameLogsForPlayers(
     totalPlayers: playerIds.length,
     totalGames,
     errors,
+  };
+}
+
+/**
+ * Ingest game logs with player identity validation
+ * Validates each player's ID matches their name before ingestion
+ * Prevents silent data corruption from ID mismatches
+ */
+export async function ingestGameLogsWithValidation(
+  players: Array<{ playerId: string; mlbamId: string; name: string }>,
+  season: number,
+  traceId: string
+): Promise<{
+  totalPlayers: number;
+  validated: number;
+  rejected: number;
+  totalGames: number;
+  errors: string[];
+  validations: Array<{
+    mlbamId: string;
+    name: string;
+    valid: boolean;
+    errors: string[];
+    warnings: string[];
+  }>;
+}> {
+  const errors: string[] = [];
+  const validations: Array<{
+    mlbamId: string;
+    name: string;
+    valid: boolean;
+    errors: string[];
+    warnings: string[];
+  }> = [];
+  let totalGames = 0;
+  let validated = 0;
+  let rejected = 0;
+
+  for (const { playerId, mlbamId, name } of players) {
+    console.log(`[INGESTION] Validating ${name} (${mlbamId})...`);
+
+    // Validate identity before ingestion
+    const validation = await validatePlayerIdentity(mlbamId, name);
+
+    validations.push({
+      mlbamId,
+      name,
+      valid: validation.valid,
+      errors: validation.errors,
+      warnings: validation.warnings,
+    });
+
+    // Log warnings
+    for (const warning of validation.warnings) {
+      console.warn(`[INGESTION] Warning for ${name}: ${warning}`);
+    }
+
+    // Reject if identity mismatch
+    if (!validation.valid) {
+      for (const error of validation.errors) {
+        console.error(`[INGESTION] ${error}`);
+        errors.push(`${name} (${mlbamId}): ${error}`);
+      }
+      rejected++;
+      continue;
+    }
+
+    // Proceed with ingestion
+    try {
+      const entries = await fetchPlayerGameLogsFromApi(mlbamId, season);
+      const result = await storeGameLogs(playerId, entries, traceId);
+      totalGames += result.stored;
+      errors.push(...result.errors);
+      validated++;
+
+      console.log(
+        `[INGESTION] ${name}: ${result.stored} games stored (${entries.length} fetched)`
+      );
+    } catch (error) {
+      const msg = `Player ${name} (${mlbamId}): ${error instanceof Error ? error.message : String(error)}`;
+      console.error(`[INGESTION] ${msg}`);
+      errors.push(msg);
+      rejected++;
+    }
+  }
+
+  return {
+    totalPlayers: players.length,
+    validated,
+    rejected,
+    totalGames,
+    errors,
+    validations,
   };
 }

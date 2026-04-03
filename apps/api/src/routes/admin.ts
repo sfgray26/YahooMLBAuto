@@ -8,6 +8,7 @@
 import type { FastifyInstance, FastifyPluginOptions } from 'fastify';
 import { runDailyIngestion, validateIngestion } from '@cbb/worker';
 import { ingestGameLogsForPlayers, batchComputeDerivedStatsFromGameLogs } from '@cbb/worker';
+import { validatePlayerIdentity, validatePlayerBatch, suggestCorrectId } from '@cbb/worker';
 import { prisma } from '@cbb/infrastructure';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -559,6 +560,109 @@ export async function adminRoutes(
       };
     } catch (error) {
       console.error('[ADMIN] Game logs fetch error:', error);
+      return reply.status(500).send({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  // ==========================================================================
+  // POST /admin/validate-player-id
+  // Validate that an MLBAM ID matches the expected player name
+  // ==========================================================================
+  fastify.post('/validate-player-id', async (request, reply) => {
+    const { mlbamId, name } = request.body as {
+      mlbamId: string;
+      name: string;
+    };
+
+    if (!mlbamId || !name) {
+      return reply.status(400).send({
+        success: false,
+        error: 'mlbamId and name are required',
+      });
+    }
+
+    console.log(`[ADMIN] Validating player ID: ${name} (${mlbamId})`);
+
+    try {
+      const result = await validatePlayerIdentity(mlbamId, name);
+      const suggestion = !result.valid ? await suggestCorrectId(name) : null;
+
+      return {
+        success: true,
+        valid: result.valid,
+        expectedName: result.expectedName,
+        actualIdentity: result.actualIdentity,
+        errors: result.errors,
+        warnings: result.warnings,
+        suggestion: suggestion ? {
+          mlbamId: suggestion.mlbamId,
+          confidence: suggestion.confidence,
+        } : null,
+      };
+    } catch (error) {
+      console.error('[ADMIN] Player validation error:', error);
+      return reply.status(500).send({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  // ==========================================================================
+  // POST /admin/validate-player-batch
+  // Validate multiple player IDs in one request
+  // ==========================================================================
+  fastify.post('/validate-player-batch', async (request, reply) => {
+    const { players } = request.body as {
+      players: Array<{ mlbamId: string; name: string }>;
+    };
+
+    if (!players || !Array.isArray(players) || players.length === 0) {
+      return reply.status(400).send({
+        success: false,
+        error: 'players array is required',
+        message: 'Provide array of { mlbamId, name } objects to validate',
+      });
+    }
+
+    if (players.length > 50) {
+      return reply.status(400).send({
+        success: false,
+        error: 'Batch size exceeded',
+        message: 'Maximum 50 players per batch',
+      });
+    }
+
+    console.log(`[ADMIN] Validating batch of ${players.length} players`);
+
+    try {
+      const results = await validatePlayerBatch(players);
+      const valid = results.filter((r) => r.valid).length;
+      const invalid = results.filter((r) => !r.valid).length;
+
+      return {
+        success: true,
+        summary: {
+          total: players.length,
+          valid,
+          invalid,
+        },
+        results: results.map((r, i) => ({
+          mlbamId: players[i].mlbamId,
+          name: r.expectedName,
+          valid: r.valid,
+          actualName: r.actualIdentity?.fullName || null,
+          active: r.actualIdentity?.active || false,
+          currentTeam: r.actualIdentity?.currentTeam || null,
+          errors: r.errors,
+          warnings: r.warnings,
+        })),
+      };
+    } catch (error) {
+      console.error('[ADMIN] Batch validation error:', error);
       return reply.status(500).send({
         success: false,
         error: error instanceof Error ? error.message : String(error),
