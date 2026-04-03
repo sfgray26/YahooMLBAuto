@@ -13,6 +13,9 @@
     "db:generate": "cd packages/infrastructure && pnpm prisma generate",
     "db:seed": "cd packages/infrastructure && pnpm prisma db seed",
     "db:test": "tsx scripts/test-persistence.ts",
+    "uat": "tsx scripts/uat/run-all.ts",
+    "uat:verbose": "tsx scripts/uat/run-all.ts --verbose",
+    "uat:json": "tsx scripts/uat/run-all.ts --json",
     "api:dev": "cd apps/api && pnpm dev",
     "worker:dev": "cd apps/worker && pnpm dev"
   },
