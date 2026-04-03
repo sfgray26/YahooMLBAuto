@@ -43,6 +43,7 @@ interface ComputedDerivedStats {
   isoLast30: number;
   walkRateLast30: number;
   strikeoutRateLast30: number;
+  babipLast30: number | null;
 
   // Reliability
   battingAverageReliable: boolean;
@@ -56,6 +57,17 @@ interface ComputedDerivedStats {
   productionVolatility: number;
   zeroHitGamesLast14: number;
   multiHitGamesLast14: number;
+
+  // Opportunity signals (not yet computed from game logs)
+  gamesStartedLast14: number;
+  lineupSpot: number | null;
+  platoonRisk: string | null;
+  playingTimeTrend: string | null;
+
+  // Context (requires external data)
+  positionEligibility: string[];
+  waiverWireValue: number | null;
+  rosteredPercent: number | null;
 }
 
 /**
@@ -281,6 +293,12 @@ export async function computeDerivedStatsFromGameLogs(
   const walkRateLast30 = pa > 0 ? stats30.walks / pa : 0;
   const strikeoutRateLast30 = pa > 0 ? stats30.strikeouts / pa : 0;
 
+  // BABIP = (H - HR) / (AB - K - HR + SF)
+  // Balls in play that were hits / Total balls in play
+  const hitsMinusHR = stats30.hits - stats30.homeRuns;
+  const ballsInPlay = stats30.atBats - stats30.strikeouts - stats30.homeRuns + stats30.sacrificeFlies;
+  const babipLast30 = ballsInPlay > 0 ? hitsMinusHR / ballsInPlay : null;
+
   // Reliability flags (standard stabilization thresholds)
   const battingAverageReliable = stats30.games >= 50 || stats30.atBats >= 200;
   const obpReliable = stats30.games >= 50 || stats30.plateAppearances >= 250;
@@ -306,6 +324,7 @@ export async function computeDerivedStatsFromGameLogs(
     isoLast30,
     walkRateLast30,
     strikeoutRateLast30,
+    babipLast30,
 
     battingAverageReliable,
     obpReliable,
@@ -317,6 +336,17 @@ export async function computeDerivedStatsFromGameLogs(
     productionVolatility,
     zeroHitGamesLast14: zeroHitGames,
     multiHitGamesLast14: multiHitGames,
+
+    // Opportunity signals - not yet computed from game logs
+    gamesStartedLast14: 0,
+    lineupSpot: null,
+    platoonRisk: null,
+    playingTimeTrend: null,
+
+    // Context - requires external data sources
+    positionEligibility: [],
+    waiverWireValue: null,
+    rosteredPercent: null,
   };
 }
 
