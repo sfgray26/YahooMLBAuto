@@ -1002,4 +1002,50 @@ export async function adminRoutes(
       });
     }
   });
+
+  // ==========================================================================
+  // GET /admin/debug-derived-all/:mlbamId
+  // Debug endpoint to check all derived stats records for a player
+  // ==========================================================================
+  fastify.get<{
+    Params: {
+      mlbamId: string;
+    };
+    Querystring: {
+      season?: string;
+    };
+  }>('/debug-derived-all/:mlbamId', async (request, reply) => {
+    const { mlbamId } = request.params;
+    const season = parseInt(request.query.season || '2026');
+    
+    console.log(`[ADMIN] Debug all derived stats for: ${mlbamId}, season: ${season}`);
+    
+    try {
+      const records = await prisma.playerDerivedStats.findMany({
+        where: { playerMlbamId: mlbamId, season },
+        orderBy: { computedAt: 'desc' },
+        take: 5,
+      });
+      
+      return {
+        success: true,
+        mlbamId,
+        season,
+        count: records.length,
+        records: records.map(r => ({
+          computedAt: r.computedAt,
+          computedDate: r.computedDate,
+          babipLast30: r.babipLast30,
+          opsLast30: r.opsLast30,
+          gamesLast30: r.gamesLast30,
+        })),
+      };
+    } catch (error) {
+      console.error('[ADMIN] Debug derived stats error:', error);
+      return reply.status(500).send({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
 }
