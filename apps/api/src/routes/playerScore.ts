@@ -114,7 +114,7 @@ export async function playerScoreRoutes(
     }
 
     // Calculate scores and sort
-    const players = derivedRecords.map((d) => ({
+    const players = derivedRecords.map((d: { playerId: string; playerMlbamId: string; battingAverageLast30: number | null; opsLast30: number | null; gamesLast30: number; plateAppearancesLast30: number; hitConsistencyScore: number; gamesStartedLast14: number }) => ({
       id: d.playerId,
       mlbamId: d.playerMlbamId,
       score: {
@@ -125,7 +125,7 @@ export async function playerScoreRoutes(
     }));
 
     // Sort by overall value
-    players.sort((a, b) => b.score.overallValue - a.score.overallValue);
+    players.sort((a: { score: { overallValue: number } }, b: { score: { overallValue: number } }) => b.score.overallValue - a.score.overallValue);
 
     return {
       players,

@@ -45,8 +45,7 @@ export async function decisionRoutes(
     });
 
     return {
-      decisions: decisions.map(d => {
-        const payload = d as unknown as ExecutionDecision;
+      decisions: decisions.map((d: { id: string; decisionType: string; createdAt: Date; targetId: string; confidence: string; executionMode: string; recommendedAction: unknown; reasoning: unknown }) => {
         return {
           decisionId: d.id,
           type: d.decisionType,
@@ -54,8 +53,8 @@ export async function decisionRoutes(
           target: d.targetId,
           confidence: d.confidence,
           executionMode: d.executionMode,
-          recommendedAction: payload.recommendedAction,
-          reasoning: payload.reasoning,
+          recommendedAction: d.recommendedAction,
+          reasoning: d.reasoning,
         };
       }),
     };
@@ -144,7 +143,7 @@ export async function decisionRoutes(
     });
 
     return {
-      decisions: decisions.map(d => ({
+      decisions: decisions.map((d: { id: string; decisionType: string; status: string; createdAt: Date; decidedAt: Date | null; targetId: string; confidence: string; executionMode: string }) => ({
         decisionId: d.id,
         type: d.decisionType,
         status: d.status,

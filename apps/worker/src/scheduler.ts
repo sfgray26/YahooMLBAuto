@@ -57,7 +57,7 @@ async function runScheduledTasks() {
       if (players.length > 0) {
         const today = new Date().toISOString().split('T')[0];
         await addValuationJob(
-          players.map(p => p.playerId),
+          players.map((p: { playerId: string }) => p.playerId),
           { start: today, end: today },
           uuidv4()
         );

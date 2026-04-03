@@ -534,7 +534,7 @@ export async function adminRoutes(
       let cumulativeHBP = 0;
       let cumulativeSF = 0;
 
-      const gamesWithTotals = gameLogs.map((game) => {
+      const gamesWithTotals = gameLogs.map((game: { gameDate: Date; plateAppearances: number; hits: number; atBats: number; doubles: number; triples: number; homeRuns: number; walks: number; hitByPitch?: number; sacrificeFlies?: number }) => {
         cumulativePA += game.plateAppearances;
         cumulativeHits += game.hits;
         cumulativeAB += game.atBats;
@@ -835,7 +835,7 @@ export async function adminRoutes(
       return {
         success: true,
         count: players.length,
-        players: players.map(p => ({
+        players: players.map((p: { mlbamId: string; fullName: string; team: string | null; position: string | null; isActive: boolean; verifiedAt: Date }) => ({
           mlbamId: p.mlbamId,
           fullName: p.fullName,
           team: p.team,
@@ -940,3 +940,8 @@ export async function adminRoutes(
       console.error('[ADMIN] Fetch derived stats error:', error);
       return reply.status(500).send({
         success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+}
