@@ -25,7 +25,7 @@ const UAT_ROSTER = [
   { mlbamId: '650333', name: 'Luis Arraez', team: 'SD', position: '1B', games: 152, avg: '.310', ops: '.780' },
   { mlbamId: '624413', name: 'Pete Alonso', team: 'NYM', position: '1B', games: 148, avg: '.245', ops: '.835' },
   { mlbamId: '621043', name: 'Brandon Nimmo', team: 'NYM', position: 'LF', games: 145, avg: '.270', ops: '.820' },
-  { mlbamId: '691738', name: 'Pete Crow-Armstrong', team: 'CHC', position: 'CF', games: 112, avg: '.248', ops: '.720' },
+  { mlbamId: '691718', name: 'Pete Crow-Armstrong', team: 'CHC', position: 'CF', games: 112, avg: '.248', ops: '.720' },
   { mlbamId: '680694', name: 'Steven Kwan', team: 'CLE', position: 'LF', games: 150, avg: '.285', ops: '.775' },
   { mlbamId: '676979', name: 'Garrett Crochet', team: 'BOS', position: 'SP', games: 28, avg: '.150', ops: '.300' },
   { mlbamId: '650911', name: 'Cristopher Sánchez', team: 'PHI', position: 'SP', games: 26, avg: '.140', ops: '.280' },

@@ -27,7 +27,7 @@ const YOUR_ROSTER = [
   { mlbamId: '624413', name: 'Pete Alonso', team: 'NYM', position: '1B', games: 148, avg: '.245', ops: '.835' },
   { mlbamId: '621043', name: 'Brandon Nimmo', team: 'NYM', position: 'LF', games: 145, avg: '.270', ops: '.820' },
   { mlbamId: '691738', name: 'Pete Crow-Armstrong', team: 'CHC', position: 'CF', games: 112, avg: '.248', ops: '.720' },
-  { mlbamId: '680694', name: 'Steven Kwan', team: 'CLE', position: 'LF', games: 150, avg: '.285', ops: '.775' },
+  { mlbamId: '680757', name: 'Steven Kwan', team: 'CLE', position: 'LF', games: 150, avg: '.285', ops: '.775' },
   // IL
   { mlbamId: '676059', name: 'Jordan Westburg', team: 'BAL', position: '2B', games: 45, avg: '.255', ops: '.740' },
   { mlbamId: '673548', name: 'Seiya Suzuki', team: 'CHC', position: 'RF', games: 38, avg: '.275', ops: '.805' },

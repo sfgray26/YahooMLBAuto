@@ -23,7 +23,7 @@ const YOUR_ROSTER: RosterSlot[] = [
   
   // Bench Hitters
   { player: { id: uuidv4(), mlbamId: '624413', name: 'Pete Alonso', team: 'NYM', position: ['1B'] }, position: 'BN', isLocked: false },
-  { player: { id: uuidv4(), mlbamId: '621043', name: 'Brandon Nimmo', team: 'NYM', position: ['LF', 'CF', 'RF'] }, position: 'BN', isLocked: false },
+  { player: { id: uuidv4(), mlbamId: '607043', name: 'Brandon Nimmo', team: 'NYM', position: ['LF', 'CF', 'RF'] }, position: 'BN', isLocked: false },
   { player: { id: uuidv4(), mlbamId: '691738', name: 'Pete Crow-Armstrong', team: 'CHC', position: ['CF'] }, position: 'BN', isLocked: false },
   { player: { id: uuidv4(), mlbamId: '680694', name: 'Steven Kwan', team: 'CLE', position: ['LF'] }, position: 'BN', isLocked: false },
   
