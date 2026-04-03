@@ -6,3 +6,6 @@
 
 // Ingestion
 export { runDailyIngestion, validateIngestion } from './ingestion/index.js';
+
+// Monte Carlo
+export { simulatePlayerOutcome, simulatePlayerOutcomes, comparePlayers } from './monte-carlo/index.js';
