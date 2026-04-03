@@ -47,11 +47,11 @@ const YOUR_ROSTER: RosterSlot[] = [
 
 // Waiver wire players (NOT on your roster - for recommendations)
 const WAIVER_WIRE: PoolPlayer[] = [
-  { player: { id: uuidv4(), mlbamId: '694817', name: 'Gunnar Henderson', team: 'BAL', position: ['SS', '3B'] }, isAvailable: true, lastUpdated: new Date().toISOString() },
-  { player: { id: uuidv4(), mlbamId: '682985', name: 'Corbin Carroll', team: 'ARI', position: ['LF', 'CF', 'RF'] }, isAvailable: true, lastUpdated: new Date().toISOString() },
-  { player: { id: uuidv4(), mlbamId: '660670', name: 'Bobby Witt Jr.', team: 'KC', position: ['SS'] }, isAvailable: true, lastUpdated: new Date().toISOString() },
-  { player: { id: uuidv4(), mlbamId: '677594', name: 'Julio Rodriguez', team: 'SEA', position: ['CF'] }, isAvailable: true, lastUpdated: new Date().toISOString() },
-  { player: { id: uuidv4(), mlbamId: '683011', name: 'Spencer Torkelson', team: 'DET', position: ['1B'] }, isAvailable: true, lastUpdated: new Date().toISOString() },
+  { player: { id: uuidv4(), mlbamId: '694817', name: 'Gunnar Henderson', team: 'BAL', position: ['SS', '3B'] }, isAvailable: true },
+  { player: { id: uuidv4(), mlbamId: '682985', name: 'Corbin Carroll', team: 'ARI', position: ['LF', 'CF', 'RF'] }, isAvailable: true },
+  { player: { id: uuidv4(), mlbamId: '660670', name: 'Bobby Witt Jr.', team: 'KC', position: ['SS'] }, isAvailable: true },
+  { player: { id: uuidv4(), mlbamId: '677594', name: 'Julio Rodriguez', team: 'SEA', position: ['CF'] }, isAvailable: true },
+  { player: { id: uuidv4(), mlbamId: '683011', name: 'Spencer Torkelson', team: 'DET', position: ['1B'] }, isAvailable: true },
 ];
 
 export async function waiverTestRoutes(

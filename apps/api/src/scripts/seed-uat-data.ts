@@ -137,6 +137,8 @@ async function seedPlayers() {
         waiverWireValue: 50 + (ops - 0.700) * 100,
         rosteredPercent: 85,
         computedAt: new Date(),
+        computedDate: new Date(),
+        traceId: 'uat-seed',
       },
     });
   }
@@ -184,6 +186,8 @@ async function seedPlayers() {
         waiverWireValue: 60 + (parseFloat(player.ops) - 0.800) * 150,
         rosteredPercent: 92,
         computedAt: new Date(),
+        computedDate: new Date(),
+        traceId: 'uat-seed',
       },
     });
   }
