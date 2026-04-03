@@ -723,4 +723,126 @@ export async function adminRoutes(
       });
     }
   });
+
+  // ==========================================================================
+  // POST /admin/ingest-player-gated
+  // Ingest a single player with mandatory identity verification
+  // ==========================================================================
+  fastify.post<{
+    Body: {
+      mlbamId: string;
+      season?: number;
+    };
+  }>('/ingest-player-gated', async (request, reply) => {
+    const { mlbamId, season } = request.body;
+    const targetSeason = season || new Date().getFullYear();
+    
+    console.log(`[ADMIN] Gated ingestion for player: ${mlbamId}, season: ${targetSeason}`);
+    
+    try {
+      const { ingestPlayer } = await import('@cbb/worker');
+      const result = await ingestPlayer(mlbamId);
+      
+      if (!result.success) {
+        return reply.status(400).send({
+          success: false,
+          error: result.error,
+          mlbamId,
+          traceId: result.traceId,
+        });
+      }
+      
+      return {
+        success: true,
+        mlbamId,
+        playerName: result.identity?.fullName,
+        gamesIngested: result.gamesIngested,
+        traceId: result.traceId,
+      };
+    } catch (error) {
+      console.error('[ADMIN] Gated ingestion error:', error);
+      return reply.status(500).send({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  // ==========================================================================
+  // POST /admin/recommend-waiver
+  // Get waiver recommendation with verified identity
+  // ==========================================================================
+  fastify.post<{
+    Body: {
+      mlbamId: string;
+    };
+  }>('/recommend-waiver', async (request, reply) => {
+    const { mlbamId } = request.body;
+    
+    console.log(`[ADMIN] Waiver recommendation for: ${mlbamId}`);
+    
+    try {
+      const { recommendWaiverPickup } = await import('@cbb/worker');
+      const result = await recommendWaiverPickup(mlbamId);
+      
+      if (!result.verified) {
+        return reply.status(400).send({
+          success: false,
+          verified: false,
+          error: result.error,
+          mlbamId,
+          traceId: result.traceId,
+        });
+      }
+      
+      return {
+        success: true,
+        verified: true,
+        player: result.player,
+        score: result.score,
+        computedAt: result.computedAt,
+        traceId: result.traceId,
+      };
+    } catch (error) {
+      console.error('[ADMIN] Waiver recommendation error:', error);
+      return reply.status(500).send({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  // ==========================================================================
+  // GET /admin/verified-players
+  // List all verified players in registry
+  // ==========================================================================
+  fastify.get('/verified-players', async (_request, reply) => {
+    console.log('[ADMIN] Fetching verified players registry...');
+    
+    try {
+      const players = await prisma.verifiedPlayer.findMany({
+        orderBy: { verifiedAt: 'desc' },
+        take: 100,
+      });
+      
+      return {
+        success: true,
+        count: players.length,
+        players: players.map(p => ({
+          mlbamId: p.mlbamId,
+          fullName: p.fullName,
+          team: p.team,
+          position: p.position,
+          isActive: p.isActive,
+          verifiedAt: p.verifiedAt,
+        })),
+      };
+    } catch (error) {
+      console.error('[ADMIN] Fetch verified players error:', error);
+      return reply.status(500).send({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
 }
