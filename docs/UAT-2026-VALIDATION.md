@@ -145,8 +145,19 @@ Before advancing to Yahoo integration:
 ## Known Limitations
 
 1. **Early Season Small Samples**: 6 games is not statistically significant
-2. **No 2026 Data for Yainer Diaz**: May be injured or not playing
+2. **MLB Stats API Data Lag**: Some players (e.g., Yainer Diaz) may show 0 games in our system while Baseball-Reference shows 5+ games. This is a data source limitation.
 3. **OPS Calculation**: We use stored OBP/SLG from raw data - verify source accuracy
+
+### Data Source Discrepancy - Yainer Diaz
+
+| Source | 2026 Games | Status |
+|--------|------------|--------|
+| Baseball-Reference | 5 games (Mar 26-31) | User validated |
+| MLB Stats API | 0 games | Our data source |
+| Our Database | 0 games | Ingested from MLB API |
+
+**Impact**: Player will not appear in waiver recommendations until MLB API updates.
+**Mitigation**: Document known data gaps; consider secondary data source in future.
 
 ---
 

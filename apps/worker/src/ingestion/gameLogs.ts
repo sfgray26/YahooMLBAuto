@@ -104,6 +104,15 @@ export async function fetchPlayerGameLogsFromApi(
   };
 
   const splits = data.stats?.[0]?.splits || [];
+  
+  if (splits.length === 0) {
+    console.warn(`[INGESTION] No game logs found for player ${playerMlbamId} in season ${season}. This may indicate:
+      - Player has not played yet
+      - MLB Stats API data lag (try again later)
+      - Player ID mismatch
+      - Data source limitation (MLB API vs Baseball-Reference)`);
+  }
+  
   const entries: GameLogEntry[] = [];
 
   for (const split of splits) {
