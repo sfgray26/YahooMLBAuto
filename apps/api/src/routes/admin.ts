@@ -483,4 +483,86 @@ export async function adminRoutes(
       });
     }
   });
+
+  // ==========================================================================
+  // GET /admin/game-logs/:mlbamId - Get raw game logs for validation
+  // ==========================================================================
+  fastify.get('/game-logs/:mlbamId', async (request, reply) => {
+    const { mlbamId } = request.params as { mlbamId: string };
+    const { season } = request.query as { season?: string };
+    const targetSeason = season ? parseInt(season) : new Date().getFullYear();
+
+    console.log(`[ADMIN] Fetching game logs for ${mlbamId}, season ${targetSeason}`);
+
+    try {
+      const gameLogs = await prisma.playerGameLog.findMany({
+        where: {
+          playerMlbamId: mlbamId,
+          season: targetSeason,
+        },
+        orderBy: { gameDate: 'desc' },
+        select: {
+          gameDate: true,
+          gamePk: true,
+          opponentId: true,
+          isHomeGame: true,
+          atBats: true,
+          runs: true,
+          hits: true,
+          doubles: true,
+          triples: true,
+          homeRuns: true,
+          rbi: true,
+          walks: true,
+          strikeouts: true,
+          stolenBases: true,
+          plateAppearances: true,
+        },
+      });
+
+      // Calculate running totals for validation
+      let cumulativePA = 0;
+      let cumulativeHits = 0;
+      let cumulativeAB = 0;
+      let cumulativeTB = 0;
+      let cumulativeBB = 0;
+      let cumulativeHBP = 0;
+
+      const gamesWithTotals = gameLogs.map((game) => {
+        cumulativePA += game.plateAppearances;
+        cumulativeHits += game.hits;
+        cumulativeAB += game.atBats;
+        cumulativeTB += (game.hits + game.doubles + game.triples * 2 + game.homeRuns * 3);
+        cumulativeBB += game.walks;
+        cumulativeHBP += 0; // Not tracking HBP in simplified model
+
+        const avg = cumulativeAB > 0 ? (cumulativeHits / cumulativeAB).toFixed(3) : '.000';
+        const obp = cumulativePA > 0 ? ((cumulativeHits + cumulativeBB + cumulativeHBP) / cumulativePA).toFixed(3) : '.000';
+        const slg = cumulativeAB > 0 ? (cumulativeTB / cumulativeAB).toFixed(3) : '.000';
+
+        return {
+          ...game,
+          gameDate: game.gameDate.toISOString().split('T')[0],
+          cumulativePA,
+          runningAVG: avg,
+          runningOBP: obp,
+          runningSLG: slg,
+          runningOPS: (parseFloat(obp) + parseFloat(slg)).toFixed(3),
+        };
+      });
+
+      return {
+        playerMlbamId: mlbamId,
+        season: targetSeason,
+        totalGames: gameLogs.length,
+        games: gamesWithTotals,
+      };
+    } catch (error) {
+      console.error('[ADMIN] Game logs fetch error:', error);
+      return reply.status(500).send({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
 }
