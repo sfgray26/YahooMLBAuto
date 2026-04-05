@@ -164,7 +164,7 @@ export async function waiverRoutes(
     });
 
     return {
-      recommendations: recommendations.map(rec => ({
+      recommendations: recommendations.map((rec: { id: string; status: string; createdAt: Date; result: { createdAt: Date } | null }) => ({
         requestId: rec.id,
         status: rec.status,
         createdAt: rec.createdAt,

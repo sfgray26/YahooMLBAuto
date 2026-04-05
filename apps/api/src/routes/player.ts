@@ -197,7 +197,7 @@ export async function playerRoutes(
     });
 
     return {
-      players: players.map(p => ({
+      players: players.map((p: { playerId: string; playerMlbamId: string; playerName: string; playerTeam: string | null; playerPositions: string[]; valueOverReplacement: number; overallRisk: string }) => ({
         id: p.playerId,
         mlbamId: p.playerMlbamId,
         name: p.playerName,
@@ -247,7 +247,7 @@ export async function playerRoutes(
     });
 
     return {
-      players: players.map(p => ({
+      players: players.map((p: { playerId: string; playerMlbamId: string; playerName: string; playerTeam: string | null; playerPositions: string[]; valueOverReplacement: number; overallRisk: string; pointProjection: unknown }) => ({
         id: p.playerId,
         mlbamId: p.playerMlbamId,
         name: p.playerName,

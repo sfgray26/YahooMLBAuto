@@ -232,7 +232,7 @@ export async function getAllDerivedFeatures(
     orderBy: { computedAt: 'desc' },
   });
 
-  return records.map((record) => ({
+  return records.map((record: { playerId: string; playerMlbamId: string; season: number; computedAt: Date; gamesLast7: number; gamesLast14: number; gamesLast30: number; plateAppearancesLast7: number; plateAppearancesLast14: number; plateAppearancesLast30: number; atBatsLast30: number; battingAverageLast30: number | null; onBasePctLast30: number | null; sluggingPctLast30: number | null; opsLast30: number | null; isoLast30: number | null; walkRateLast30: number | null; strikeoutRateLast30: number | null; babipLast30: number | null; battingAverageReliable: boolean; obpReliable: boolean; slgReliable: boolean; opsReliable: boolean; gamesToReliable: number; hitConsistencyScore: number; productionVolatility: number; zeroHitGamesLast14: number; multiHitGamesLast14: number; gamesStartedLast14: number; lineupSpot: number | null; platoonRisk: string | null; playingTimeTrend: string | null; positionEligibility: string[]; waiverWireValue: number | null; rosteredPercent: number | null }) => ({
     playerId: record.playerId,
     playerMlbamId: record.playerMlbamId,
     season: record.season,

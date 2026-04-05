@@ -430,7 +430,7 @@ export async function queryDecisions(
       take: 100, // Default limit
     });
 
-    return decisions.map(d => ({
+    return decisions.map((d: { decisionId: string; decisionType: string; createdAt: Date; status: string }) => ({
       decisionId: d.decisionId,
       decisionType: d.decisionType,
       createdAt: d.createdAt,
@@ -482,10 +482,10 @@ export async function getDecisionPerformanceSummary(
       },
     });
 
-    const lineupDecisions = decisions.filter(d => d.decisionType === 'lineup');
-    const waiverDecisions = decisions.filter(d => d.decisionType === 'waiver');
+    const lineupDecisions = decisions.filter((d: any) => d.decisionType === 'lineup');
+    const waiverDecisions = decisions.filter((d: any) => d.decisionType === 'waiver');
     
-    const completedLineupDecisions = lineupDecisions.filter(d => d.lineupDetail?.actualPoints !== null);
+    const completedLineupDecisions = lineupDecisions.filter((d: any) => d.lineupDetail?.actualPoints !== null);
     
     // Calculate lineup accuracy metrics
     let totalLineupError = 0;
@@ -510,7 +510,7 @@ export async function getDecisionPerformanceSummary(
       : 0;
 
     // Calculate waiver ROI
-    const completedWaiverDecisions = waiverDecisions.filter(d => d.waiverDetail?.claimSucceeded !== null);
+    const completedWaiverDecisions = waiverDecisions.filter((d: any) => d.waiverDetail?.claimSucceeded !== null);
     let totalWaiverSpend = 0;
     let totalWaiverReturn = 0;
     
@@ -527,20 +527,20 @@ export async function getDecisionPerformanceSummary(
 
     // Confidence-based accuracy (using numeric thresholds)
     // Confidence is stored as a float (0-1), so we use numeric comparisons
-    const highConfidenceDecisions = completedLineupDecisions.filter(d => d.confidence >= 0.8);
-    const lowConfidenceDecisions = completedLineupDecisions.filter(d => d.confidence <= 0.4);
+    const highConfidenceDecisions = completedLineupDecisions.filter((d: any) => d.confidence >= 0.8);
+    const lowConfidenceDecisions = completedLineupDecisions.filter((d: any) => d.confidence <= 0.4);
     
     const highConfidenceAccuracy = highConfidenceDecisions.length > 0
-      ? highConfidenceDecisions.filter(d => (d.lineupDetail?.projectionErrorPercent ?? 100) < 20).length / highConfidenceDecisions.length
+      ? highConfidenceDecisions.filter((d: any) => (d.lineupDetail?.projectionErrorPercent ?? 100) < 20).length / highConfidenceDecisions.length
       : 0;
     
     const lowConfidenceAccuracy = lowConfidenceDecisions.length > 0
-      ? lowConfidenceDecisions.filter(d => (d.lineupDetail?.projectionErrorPercent ?? 100) < 20).length / lowConfidenceDecisions.length
+      ? lowConfidenceDecisions.filter((d: any) => (d.lineupDetail?.projectionErrorPercent ?? 100) < 20).length / lowConfidenceDecisions.length
       : 0;
 
     return {
       totalDecisions: decisions.length,
-      executedDecisions: decisions.filter(d => d.status === 'completed').length,
+      executedDecisions: decisions.filter((d: { status: string }) => d.status === 'completed').length,
       lineupDecisions: lineupDecisions.length,
       waiverDecisions: waiverDecisions.length,
       avgLineupError,

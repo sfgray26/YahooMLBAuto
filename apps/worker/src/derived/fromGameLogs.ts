@@ -95,7 +95,7 @@ async function computeRollingStats(
   });
 
   return games.reduce(
-    (acc, game) => ({
+    (acc: RollingStats, game: { gamesPlayed: number; plateAppearances: number; atBats: number; hits: number; doubles: number; triples: number; homeRuns: number; runs: number; rbi: number; walks: number; strikeouts: number; stolenBases: number; caughtStealing: number; hitByPitch: number; sacrificeFlies: number; totalBases: number }) => ({
       games: acc.games + game.gamesPlayed,
       plateAppearances: acc.plateAppearances + game.plateAppearances,
       atBats: acc.atBats + game.atBats,
@@ -200,16 +200,16 @@ async function computeVolatilityMetrics(
   }
 
   // Calculate wOBA proxy per game (simplified)
-  const gameValues = games.map((g) => {
+  const gameValues = games.map((g: { totalBases: number; plateAppearances: number }) => {
     const tb = g.totalBases;
     const pa = Math.max(1, g.plateAppearances);
     return tb / pa; // Total bases per PA as a proxy
   });
 
   // Calculate mean and standard deviation
-  const mean = gameValues.reduce((a, b) => a + b, 0) / gameValues.length;
+  const mean = gameValues.reduce((a: number, b: number) => a + b, 0) / gameValues.length;
   const variance =
-    gameValues.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) /
+    gameValues.reduce((acc: number, val: number) => acc + Math.pow(val - mean, 2), 0) /
     gameValues.length;
   const stdDev = Math.sqrt(variance);
 
@@ -221,7 +221,7 @@ async function computeVolatilityMetrics(
 
   // Hit consistency score (0-100, higher = more consistent)
   // Based on percentage of games with at least 1 hit
-  const gamesWithHits = games.filter((g) => g.hits > 0).length;
+  const gamesWithHits = games.filter((g: { hits: number }) => g.hits > 0).length;
   const hitRate = gamesWithHits / games.length;
   const hitConsistencyScore = Math.round(hitRate * 100);
 
@@ -239,9 +239,11 @@ export async function computeDerivedStatsFromGameLogs(
 ): Promise<ComputedDerivedStats | null> {
   // Determine the reference date for rolling calculations
   // If not provided, use the latest game date for this player/season
-  let referenceDate = asOfDate;
+  let referenceDate: Date;
   
-  if (!referenceDate) {
+  if (asOfDate) {
+    referenceDate = asOfDate;
+  } else {
     const latestGame = await prisma.playerGameLog.findFirst({
       where: { playerMlbamId, season },
       orderBy: { gameDate: 'desc' },

@@ -84,7 +84,7 @@ export async function computeAllDerivedFeatures(
           player.playerId,
           player.playerMlbamId,
           season,
-          rawStats.map((s) => ({
+          rawStats.map((s: { statDate: Date; gamesPlayed: number; atBats: number; hits: number; doubles: number; triples: number; homeRuns: number; walks: number; strikeouts: number; battingAvg: string | null; onBasePct: string | null; sluggingPct: string | null }) => ({
             statDate: s.statDate,
             gamesPlayed: s.gamesPlayed,
             atBats: s.atBats,
@@ -174,7 +174,7 @@ export async function computePlayerDerivedFeatures(
       player.playerId,
       playerMlbamId,
       season,
-      rawStats.map((s) => ({
+      rawStats.map((s: { statDate: Date; gamesPlayed: number; atBats: number; hits: number; doubles: number; triples: number; homeRuns: number; walks: number; strikeouts: number; battingAvg: string | null; onBasePct: string | null; sluggingPct: string | null }) => ({
         statDate: s.statDate,
         gamesPlayed: s.gamesPlayed,
         atBats: s.atBats,
