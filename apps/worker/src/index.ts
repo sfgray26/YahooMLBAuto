@@ -14,8 +14,8 @@ export {
   batchComputeDerivedStatsFromGameLogs,
 } from './derived/fromGameLogs.js';
 
-// Monte Carlo
-export { simulatePlayerOutcome, simulatePlayerOutcomes, comparePlayers } from './monte-carlo/index.js';
+// Monte Carlo (legacy - use probabilistic instead)
+export { simulatePlayerOutcome, comparePlayers } from './monte-carlo/index.js';
 
 // Validation (legacy - name-based validation)
 export {
@@ -54,4 +54,33 @@ export {
 
 // Scoring
 export { computePlayerScore } from './scoring/playerScore.js';
-export type { PlayerScore } from './scoring/playerScore.js';
+export type { PlayerScore as PlayerScoreReport } from './scoring/playerScore.js';
+export type { PlayerScore } from './scoring/compute.js';
+
+// Momentum
+export { calculateMomentum } from './momentum/index.js';
+export type { MomentumMetrics } from './momentum/index.js';
+
+// Probabilistic / Monte Carlo
+export { simulatePlayerOutcomes } from './probabilistic/index.js';
+export type { ProbabilisticOutcome, SimulationResult, PercentileOutcomes, RiskProfile } from './probabilistic/index.js';
+
+// Trade Evaluator
+export { evaluateTrade } from './trade/evaluator.js';
+export { simulateTradeScenarios, quickTradeEstimate } from './trade/simulator.js';
+export { formatTradeEvaluation, formatPlayerList, formatOneLine } from './trade/formatter.js';
+export type {
+  TradeProposal,
+  TradeEvaluation,
+  TradePlayer,
+  TradeRecommendation,
+  TradeEvaluatorConfig,
+  TradeSideAnalysis,
+  CategoryImpact,
+  RiskImpact,
+  RosterImpact,
+  WorldProjection,
+  WorldDelta,
+  TradeExplanation,
+  TeamState,
+} from './trade/types.js';

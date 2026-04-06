@@ -64,6 +64,27 @@ interface RollingStats {
   totalBases: number;
 }
 
+// Type for raw game log data from database (matches Prisma schema)
+interface GameLogData {
+  gameDate: Date;
+  gamesPlayed: number;
+  plateAppearances: number;
+  atBats: number;
+  hits: number;
+  doubles: number;
+  triples: number;
+  homeRuns: number;
+  runs: number;
+  rbi: number;
+  walks: number;
+  strikeouts: number;
+  stolenBases: number;
+  caughtStealing: number;
+  hitByPitch: number;
+  sacrificeFlies: number;
+  totalBases: number;
+}
+
 interface ComputedDerivedStats {
   gamesLast7: number;
   gamesLast14: number;
@@ -133,9 +154,9 @@ async function computeRollingStats(
     orderBy: { gameDate: 'desc' },
   });
 
-  return games.reduce(
-    (acc: RollingStats, game: { gamesPlayed: number; plateAppearances: number; atBats: number; hits: number; doubles: number; triples: number; homeRuns: number; runs: number; rbi: number; walks: number; strikeouts: number; stolenBases: number; caughtStealing: number; hitByPitch: number; sacrificeFlies: number; totalBases: number }) => ({
-      games: acc.games + game.gamesPlayed,
+  return games.reduce<RollingStats>(
+    (acc, game) => ({
+      games: acc.games + (game.gamesPlayed || 1),
       plateAppearances: acc.plateAppearances + game.plateAppearances,
       atBats: acc.atBats + game.atBats,
       hits: acc.hits + game.hits,
@@ -193,6 +214,27 @@ interface TimeDecayedStats {
   totalBases: number;         // Weighted
 }
 
+// Type for game log entries from Prisma (used in time-decayed calculations)
+// This is a subset of fields needed for weighted calculations
+interface GameLogEntry {
+  gameDate: Date;
+  plateAppearances: number;
+  atBats: number;
+  hits: number;
+  doubles: number;
+  triples: number;
+  homeRuns: number;
+  runs: number;
+  rbi: number;
+  walks: number;
+  strikeouts: number;
+  stolenBases: number;
+  caughtStealing: number;
+  hitByPitch: number;
+  sacrificeFlies: number;
+  totalBases: number;
+}
+
 /**
  * Compute TIME-DECAYED rolling stats
  * 
@@ -229,8 +271,22 @@ async function computeTimeDecayedStats(
   // Calculate weights and weighted sums
   let totalWeight = 0;
   
-  const weighted = games.reduce(
-    (acc, game) => {
+  type WeightedAccumulator = {
+    plateAppearances: number;
+    atBats: number;
+    hits: number;
+    doubles: number;
+    triples: number;
+    homeRuns: number;
+    walks: number;
+    strikeouts: number;
+    hitByPitch: number;
+    sacrificeFlies: number;
+    totalBases: number;
+  };
+
+  const weighted = games.reduce<WeightedAccumulator>(
+    (acc: WeightedAccumulator, game: GameLogEntry) => {
       const weight = calculateDecayWeight(game.gameDate, asOfDate, lambda);
       totalWeight += weight;
       

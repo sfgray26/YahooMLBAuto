@@ -20,6 +20,9 @@ import { playerScoreRoutes } from './routes/playerScore.js';
 import { decisionRoutes } from './routes/decisions.js';
 import { adminRoutes } from './routes/admin.js';
 import { monteCarloTestRoutes } from './routes/monte-carlo.js';
+import { tradeRoutes } from './routes/trade.js';
+import { momentumRoutes } from './routes/momentum.js';
+import { simulationRoutes } from './routes/simulation.js';
 
 const server = Fastify({
   logger: {
@@ -77,6 +80,9 @@ await server.register(playerScoreRoutes, { prefix: '/players' });
 await server.register(decisionRoutes, { prefix: '/decisions' });
 await server.register(adminRoutes, { prefix: '/admin' });
 await server.register(monteCarloTestRoutes, { prefix: '/monte-carlo' });
+await server.register(tradeRoutes, { prefix: '/trade' });
+await server.register(momentumRoutes, { prefix: '/momentum' });
+await server.register(simulationRoutes, { prefix: '/simulate' });
 
 // ============================================================================
 // Error Handler
