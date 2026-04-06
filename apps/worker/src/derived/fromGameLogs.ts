@@ -1,11 +1,49 @@
 /**
  * Derived Stats from Game Logs
  *
- * Computes rolling 7/14/30 day stats from actual game-by-game data
- * No shortcuts, no mock data, real calculations from stored game logs
+ * Computes time-decayed rolling stats from actual game-by-game data
+ * 
+ * TIME DECAY ARCHITECTURE:
+ * - Each game's contribution decays exponentially with age
+ * - Formula: weight = λ^Δt where λ = 0.95 (14-day half-life)
+ * - Stats are weighted averages, not simple sums
+ * - Applied BEFORE Z-scores in the pipeline
+ * 
+ * This makes the system responsive to recent form without overreacting
+ * to small samples.
  */
 
 import { prisma } from '@cbb/infrastructure';
+
+// ============================================================================
+// Time Decay Configuration
+// ============================================================================
+
+/**
+ * Decay constant λ (lambda)
+ * 0.95 = ~14 day half-life
+ * Meaning: a game 14 days ago counts half as much as today's game
+ */
+const DECAY_LAMBDA = 0.95;
+
+/**
+ * Half-life lookup for different responsiveness levels
+ */
+export const DECAY_HALFLIVES = {
+  responsive: 0.90,   // 7-day half-life (hot/cold streaks)
+  balanced: 0.93,     // 10-day half-life (default)
+  stable: 0.95,       // 14-day half-life (reliable trends)
+  very_stable: 0.97,  // 21-day half-life (season-long view)
+} as const;
+
+/**
+ * Calculate time-decayed weight for a game
+ * weight = λ^daysAgo
+ */
+function calculateDecayWeight(gameDate: Date, referenceDate: Date, lambda: number = DECAY_LAMBDA): number {
+  const daysAgo = Math.floor((referenceDate.getTime() - gameDate.getTime()) / (1000 * 60 * 60 * 24));
+  return Math.pow(lambda, Math.max(0, daysAgo));
+}
 
 interface RollingStats {
   games: number;
@@ -71,7 +109,8 @@ interface ComputedDerivedStats {
 }
 
 /**
- * Compute rolling stats from game logs for a date range
+ * Compute simple rolling stats (unweighted) from game logs
+ * Kept for backward compatibility
  */
 async function computeRollingStats(
   playerMlbamId: string,
@@ -132,6 +171,158 @@ async function computeRollingStats(
       totalBases: 0,
     }
   );
+}
+
+// ============================================================================
+// Time-Decayed Rolling Stats
+// ============================================================================
+
+interface TimeDecayedStats {
+  games: number;              // Count (not weighted)
+  totalWeight: number;        // Sum of all weights (for normalization)
+  plateAppearances: number;   // Weighted
+  atBats: number;             // Weighted
+  hits: number;               // Weighted
+  doubles: number;            // Weighted
+  triples: number;            // Weighted
+  homeRuns: number;           // Weighted
+  walks: number;              // Weighted
+  strikeouts: number;         // Weighted
+  hitByPitch: number;         // Weighted
+  sacrificeFlies: number;     // Weighted
+  totalBases: number;         // Weighted
+}
+
+/**
+ * Compute TIME-DECAYED rolling stats
+ * 
+ * Formula: weighted_stat = Σ(stat_i × λ^Δt_i) / Σ(λ^Δt_i)
+ * 
+ * This gives more weight to recent games while maintaining scale.
+ */
+async function computeTimeDecayedStats(
+  playerMlbamId: string,
+  season: number,
+  daysBack: number,
+  asOfDate: Date,
+  lambda: number = DECAY_LAMBDA
+): Promise<TimeDecayedStats | null> {
+  const cutoffDate = new Date(asOfDate);
+  cutoffDate.setDate(cutoffDate.getDate() - daysBack);
+
+  const games = await prisma.playerGameLog.findMany({
+    where: {
+      playerMlbamId,
+      season,
+      gameDate: {
+        gte: cutoffDate,
+        lte: asOfDate,
+      },
+    },
+    orderBy: { gameDate: 'desc' },
+  });
+
+  if (games.length === 0) {
+    return null;
+  }
+
+  // Calculate weights and weighted sums
+  let totalWeight = 0;
+  
+  const weighted = games.reduce(
+    (acc, game) => {
+      const weight = calculateDecayWeight(game.gameDate, asOfDate, lambda);
+      totalWeight += weight;
+      
+      return {
+        plateAppearances: acc.plateAppearances + (game.plateAppearances * weight),
+        atBats: acc.atBats + (game.atBats * weight),
+        hits: acc.hits + (game.hits * weight),
+        doubles: acc.doubles + (game.doubles * weight),
+        triples: acc.triples + (game.triples * weight),
+        homeRuns: acc.homeRuns + (game.homeRuns * weight),
+        walks: acc.walks + (game.walks * weight),
+        strikeouts: acc.strikeouts + (game.strikeouts * weight),
+        hitByPitch: acc.hitByPitch + (game.hitByPitch * weight),
+        sacrificeFlies: acc.sacrificeFlies + (game.sacrificeFlies * weight),
+        totalBases: acc.totalBases + (game.totalBases * weight),
+      };
+    },
+    {
+      plateAppearances: 0,
+      atBats: 0,
+      hits: 0,
+      doubles: 0,
+      triples: 0,
+      homeRuns: 0,
+      walks: 0,
+      strikeouts: 0,
+      hitByPitch: 0,
+      sacrificeFlies: 0,
+      totalBases: 0,
+    }
+  );
+
+  // Normalize by total weight to get weighted averages
+  return {
+    games: games.length,
+    totalWeight,
+    plateAppearances: totalWeight > 0 ? weighted.plateAppearances / totalWeight : 0,
+    atBats: totalWeight > 0 ? weighted.atBats / totalWeight : 0,
+    hits: totalWeight > 0 ? weighted.hits / totalWeight : 0,
+    doubles: totalWeight > 0 ? weighted.doubles / totalWeight : 0,
+    triples: totalWeight > 0 ? weighted.triples / totalWeight : 0,
+    homeRuns: totalWeight > 0 ? weighted.homeRuns / totalWeight : 0,
+    walks: totalWeight > 0 ? weighted.walks / totalWeight : 0,
+    strikeouts: totalWeight > 0 ? weighted.strikeouts / totalWeight : 0,
+    hitByPitch: totalWeight > 0 ? weighted.hitByPitch / totalWeight : 0,
+    sacrificeFlies: totalWeight > 0 ? weighted.sacrificeFlies / totalWeight : 0,
+    totalBases: totalWeight > 0 ? weighted.totalBases / totalWeight : 0,
+  };
+}
+
+/**
+ * Calculate rates from time-decayed stats
+ */
+function calculateDecayedRates(stats: TimeDecayedStats): {
+  battingAverage: number;
+  onBasePct: number;
+  sluggingPct: number;
+  ops: number;
+  iso: number;
+  walkRate: number;
+  strikeoutRate: number;
+  babip: number | null;
+} {
+  const pa = stats.plateAppearances;
+  const ab = stats.atBats;
+  
+  if (pa === 0) {
+    return {
+      battingAverage: 0,
+      onBasePct: 0,
+      sluggingPct: 0,
+      ops: 0,
+      iso: 0,
+      walkRate: 0,
+      strikeoutRate: 0,
+      babip: null,
+    };
+  }
+
+  // Time at bats (for BIP calculation)
+  const bip = ab - stats.strikeouts + stats.sacrificeFlies; // Balls in play
+  
+  return {
+    battingAverage: ab > 0 ? stats.hits / ab : 0,
+    onBasePct: pa > 0 ? (stats.hits + stats.walks + stats.hitByPitch) / pa : 0,
+    sluggingPct: ab > 0 ? stats.totalBases / ab : 0,
+    ops: 0, // Will compute below
+    iso: ab > 0 ? (stats.totalBases - stats.hits) / ab : 0,
+    walkRate: pa > 0 ? stats.walks / pa : 0,
+    strikeoutRate: pa > 0 ? stats.strikeouts / pa : 0,
+    babip: bip > 0 ? (stats.hits - stats.homeRuns) / bip : null,
+  };
 }
 
 /**

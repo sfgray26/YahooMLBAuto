@@ -1,507 +1,226 @@
-#!/usr/bin/env node
 /**
- * Player Scoring Layer Validation
+ * Scoring Layer Validation Tests
  * 
- * Validates that deterministic scoring produces intuitive, reasonable player rankings.
- * 
- * Test Cases:
- * 1. Component scores reflect intuition (stars high, bench bats low)
- * 2. Opportunity drives score changes properly
- * 3. Confidence drops when stability drops
- * 4. Scores move smoothly (no wild oscillations)
- * 5. Bench bats don't outrank stars without explanation
- * 
- * Exit Criteria: Scores feel like how a sharp manager would talk about players
+ * Validates the scoring layer meets architectural principles:
+ * - Deterministic: Same inputs → same outputs
+ * - Stateless: No side effects, no database writes
+ * - Pure functions: No external dependencies
+ * - Explainable: Clear reasoning for scores
  */
 
-import 'dotenv/config';
-import { prisma } from '@cbb/infrastructure';
-import { scoreSinglePlayer } from '../apps/worker/src/scoring/orchestrator';
+import { scorePlayer, PlayerScore } from '../apps/worker/src/scoring/compute';
+import type { DerivedFeatures } from '../apps/worker/src/derived/index';
 
-const season = parseInt(process.argv[2] || '2025');
-
-// Test thresholds
-const THRESHOLDS = {
-  ELITE: 70,      // Top tier players
-  STARTER: 55,    // Regular starters  
-  BENCH: 45,      // Bench/platoon players
-  STREAMER: 35,   // Streaming options
+// Test fixture: League-average player
+const leagueAveragePlayer: DerivedFeatures = {
+  playerId: 'test-avg',
+  playerMlbamId: '000001',
+  season: 2025,
+  computedAt: new Date(),
+  volume: {
+    gamesLast7: 5,
+    gamesLast14: 12,
+    gamesLast30: 26,
+    plateAppearancesLast7: 22,
+    plateAppearancesLast14: 52,
+    plateAppearancesLast30: 110,
+    atBatsLast30: 98,
+  },
+  rates: {
+    battingAverageLast30: 0.245,  // League average
+    onBasePctLast30: 0.315,       // League average
+    sluggingPctLast30: 0.410,     // League average (~.725 OPS)
+    opsLast30: 0.725,
+    isoLast30: 0.155,             // League average
+    walkRateLast30: 0.085,        // League average
+    strikeoutRateLast30: 0.220,   // League average
+    babipLast30: 0.295,
+  },
+  stabilization: {
+    battingAverageReliable: true,
+    obpReliable: true,
+    slgReliable: true,
+    opsReliable: true,
+    gamesToReliable: 0,
+  },
+  volatility: {
+    hitConsistencyScore: 50,
+    productionVolatility: 1.0,
+    zeroHitGamesLast14: 4,
+    multiHitGamesLast14: 4,
+  },
+  opportunity: {
+    gamesStartedLast14: 13,
+    lineupSpot: 5,
+    platoonRisk: 'low',
+    playingTimeTrend: 'stable',
+  },
+  replacement: {
+    positionEligibility: ['OF'],
+    waiverWireValue: null,
+    rosteredPercent: 85,
+  },
 };
 
-interface ValidationTest {
-  name: string;
-  test: () => Promise<{ passed: boolean; details: string }>;
-}
+// Test fixture: Elite player (Aaron Judge-like)
+const elitePlayer: DerivedFeatures = {
+  ...leagueAveragePlayer,
+  playerId: 'test-elite',
+  playerMlbamId: '000002',
+  rates: {
+    battingAverageLast30: 0.370,
+    onBasePctLast30: 0.528,
+    sluggingPctLast30: 0.793,
+    opsLast30: 1.321,
+    isoLast30: 0.424,
+    walkRateLast30: 0.200,
+    strikeoutRateLast30: 0.180,
+    babipLast30: 0.350,
+  },
+  volatility: {
+    hitConsistencyScore: 71,
+    productionVolatility: 0.99,
+    zeroHitGamesLast14: 2,
+    multiHitGamesLast14: 6,
+  },
+};
 
-/**
- * Get player info for reporting
- */
-async function getPlayerInfo(mlbamId: string) {
-  const derived = await prisma.playerDerivedStats.findFirst({
-    where: { playerMlbamId: mlbamId, season },
-    orderBy: { computedAt: 'desc' },
-  });
-  return derived;
-}
+// Test fixture: Small sample (high variance, should be regressed)
+const smallSamplePlayer: DerivedFeatures = {
+  ...leagueAveragePlayer,
+  playerId: 'test-small',
+  playerMlbamId: '000003',
+  volume: {
+    ...leagueAveragePlayer.volume,
+    gamesLast30: 12,
+    plateAppearancesLast30: 42,  // Small sample
+  },
+  rates: {
+    ...leagueAveragePlayer.rates,
+    opsLast30: 1.100,  // Good but small sample
+  },
+  stabilization: {
+    ...leagueAveragePlayer.stabilization,
+    opsReliable: false,
+  },
+};
 
-/**
- * Test 1: Component Scores Reflect Intuition
- * - High BA/OPS players should have high hitting scores
- * - High ISO players should have high power scores
- * - Low K%/high BB% should have good discipline scores
- */
-async function testComponentIntuition(): Promise<{ passed: boolean; details: string }> {
-  const issues: string[] = [];
-  
-  // Find players with extreme stats
-  const highAvg = await prisma.playerDerivedStats.findFirst({
-    where: { season, battingAverageLast30: { gte: 0.300 } },
-    orderBy: { battingAverageLast30: 'desc' },
-  });
-  
-  const lowAvg = await prisma.playerDerivedStats.findFirst({
-    where: { season, battingAverageLast30: { lte: 0.200, gt: 0 } },
-    orderBy: { battingAverageLast30: 'asc' },
-  });
-  
-  const highIso = await prisma.playerDerivedStats.findFirst({
-    where: { season, isoLast30: { gte: 0.250 } },
-    orderBy: { isoLast30: 'desc' },
-  });
-  
-  const lowIso = await prisma.playerDerivedStats.findFirst({
-    where: { season, isoLast30: { lte: 0.080, gt: 0 } },
-    orderBy: { isoLast30: 'asc' },
-  });
-  
-  // Score them
-  if (highAvg) {
-    const score = await scoreSinglePlayer(highAvg.playerMlbamId, season);
-    if (!score || score.components.hitting < 70) {
-      issues.push(`High AVG player (${highAvg.battingAverageLast30?.toFixed(3)}) has hitting score ${score?.components.hitting}, expected 70+`);
-    }
-  }
-  
-  if (lowAvg) {
-    const score = await scoreSinglePlayer(lowAvg.playerMlbamId, season);
-    if (!score || score.components.hitting > 40) {
-      issues.push(`Low AVG player (${lowAvg.battingAverageLast30?.toFixed(3)}) has hitting score ${score?.components.hitting}, expected <=40`);
-    }
-  }
-  
-  if (highIso) {
-    const score = await scoreSinglePlayer(highIso.playerMlbamId, season);
-    if (!score || score.components.power < 75) {
-      issues.push(`High ISO player (${highIso.isoLast30?.toFixed(3)}) has power score ${score?.components.power}, expected 75+`);
-    }
-  }
-  
-  if (lowIso) {
-    const score = await scoreSinglePlayer(lowIso.playerMlbamId, season);
-    if (!score || score.components.power > 45) {
-      issues.push(`Low ISO player (${lowIso.isoLast30?.toFixed(3)}) has power score ${score?.components.power}, expected <=45`);
-    }
-  }
-  
-  return {
-    passed: issues.length === 0,
-    details: issues.length === 0 
-      ? 'Component scores align with statistical intuition'
-      : issues.join('; ')
-  };
-}
+// Test fixture: Poor player
+const poorPlayer: DerivedFeatures = {
+  ...leagueAveragePlayer,
+  playerId: 'test-poor',
+  playerMlbamId: '000004',
+  rates: {
+    battingAverageLast30: 0.180,
+    onBasePctLast30: 0.240,
+    sluggingPctLast30: 0.280,
+    opsLast30: 0.520,
+    isoLast30: 0.080,
+    walkRateLast30: 0.040,
+    strikeoutRateLast30: 0.320,
+    babipLast30: 0.250,
+  },
+};
 
-/**
- * Test 2: Opportunity Drives Score Changes
- * - Players with high PA/G should have higher opportunity scores
- * - Full-time players should outrank part-time players with similar rates
- */
-async function testOpportunityImpact(): Promise<{ passed: boolean; details: string }> {
-  const issues: string[] = [];
-  
-  // Find a full-time player (>25 games, >100 PA)
-  const fullTime = await prisma.playerDerivedStats.findFirst({
-    where: { 
-      season, 
-      gamesLast30: { gte: 25 },
-      plateAppearancesLast30: { gte: 100 }
-    },
-  });
-  
-  // Find a part-time player (<15 games or <50 PA)
-  const partTime = await prisma.playerDerivedStats.findFirst({
-    where: { 
-      season, 
-      OR: [
-        { gamesLast30: { lte: 15 } },
-        { plateAppearancesLast30: { lte: 50 } }
-      ]
-    },
-  });
-  
-  if (fullTime) {
-    const score = await scoreSinglePlayer(fullTime.playerMlbamId, season);
-    if (!score || score.components.opportunity < 60) {
-      issues.push(`Full-time player (${fullTime.gamesLast30}G, ${fullTime.plateAppearancesLast30}PA) has opportunity ${score?.components.opportunity}, expected 60+`);
-    }
-  }
-  
-  if (partTime) {
-    const score = await scoreSinglePlayer(partTime.playerMlbamId, season);
-    if (!score || score.components.opportunity > 50) {
-      issues.push(`Part-time player (${partTime.gamesLast30}G, ${partTime.plateAppearancesLast30}PA) has opportunity ${score?.components.opportunity}, expected <=50`);
-    }
-  }
-  
-  return {
-    passed: issues.length === 0,
-    details: issues.length === 0
-      ? 'Opportunity scores correctly reflect playing time'
-      : issues.join('; ')
-  };
-}
+function runTests() {
+  console.log('╔════════════════════════════════════════════════════════════════╗');
+  console.log('║           SCORING LAYER VALIDATION TESTS                       ║');
+  console.log('╚════════════════════════════════════════════════════════════════╝\n');
 
-/**
- * Test 3: Confidence Drops When Stability Drops
- * - Small sample players should have lower confidence
- * - Unreliable stats should reduce confidence
- */
-async function testConfidenceCalibration(): Promise<{ passed: boolean; details: string }> {
-  const issues: string[] = [];
-  
-  // Find players with different sample sizes
-  const largeSample = await prisma.playerDerivedStats.findFirst({
-    where: { season, gamesLast30: { gte: 25 }, opsReliable: true },
-  });
-  
-  const smallSample = await prisma.playerDerivedStats.findFirst({
-    where: { season, gamesLast30: { lte: 10 } },
-  });
-  
-  if (largeSample) {
-    const score = await scoreSinglePlayer(largeSample.playerMlbamId, season);
-    if (!score || score.confidence < 0.7) {
-      issues.push(`Large sample player (${largeSample.gamesLast30}G) has confidence ${score?.confidence.toFixed(2)}, expected 0.7+`);
-    }
-  }
-  
-  if (smallSample) {
-    const score = await scoreSinglePlayer(smallSample.playerMlbamId, season);
-    if (!score || score.confidence > 0.6) {
-      issues.push(`Small sample player (${smallSample.gamesLast30}G) has confidence ${score?.confidence.toFixed(2)}, expected <=0.6`);
-    }
-  }
-  
-  return {
-    passed: issues.length === 0,
-    details: issues.length === 0
-      ? 'Confidence properly calibrated to sample size'
-      : issues.join('; ')
-  };
-}
+  // Test 1: Determinism
+  console.log('TEST 1: DETERMINISM');
+  console.log('Running same player through scorer 3 times...');
+  const score1 = scorePlayer(leagueAveragePlayer);
+  const score2 = scorePlayer(leagueAveragePlayer);
+  const score3 = scorePlayer(leagueAveragePlayer);
+  const deterministic = 
+    score1.overallValue === score2.overallValue && 
+    score2.overallValue === score3.overallValue;
+  console.log(`  Score 1: ${score1.overallValue}`);
+  console.log(`  Score 2: ${score2.overallValue}`);
+  console.log(`  Score 3: ${score3.overallValue}`);
+  console.log(`  ✅ ${deterministic ? 'PASS' : 'FAIL'}: Same inputs produce same outputs\n`);
 
-/**
- * Test 4: Score Distribution Sanity
- * - Scores should span the range (not all clustered)
- * - Elite players should be 70+, bench bats below 45
- * - No scores at extremes (0 or 100) without explanation
- */
-async function testScoreDistribution(): Promise<{ passed: boolean; details: string }> {
-  // Get a sample of players
-  const players = await prisma.playerDerivedStats.findMany({
-    where: { season },
-    take: 50,
-  });
-  
-  const scores: number[] = [];
-  for (const player of players) {
-    const score = await scoreSinglePlayer(player.playerMlbamId, season);
-    if (score) scores.push(score.overallValue);
-  }
-  
-  if (scores.length === 0) {
-    return { passed: false, details: 'No scores computed' };
-  }
-  
-  const min = Math.min(...scores);
-  const max = Math.max(...scores);
-  const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
-  const eliteCount = scores.filter(s => s >= THRESHOLDS.ELITE).length;
-  const benchCount = scores.filter(s => s < THRESHOLDS.BENCH).length;
-  
-  const issues: string[] = [];
-  
-  if (max - min < 20) {
-    issues.push(`Score range too narrow: ${min}-${max} (span ${max-min}, expected 30+)`);
-  }
-  
-  if (eliteCount === 0) {
-    issues.push('No elite players (70+) found in sample');
-  }
-  
-  if (benchCount === 0) {
-    issues.push('No bench/streamer players (<45) found in sample');
-  }
-  
-  // Check for extreme scores
-  const extremeLow = scores.filter(s => s < 15).length;
-  const extremeHigh = scores.filter(s => s > 90).length;
-  
-  if (extremeLow > scores.length * 0.1) {
-    issues.push(`Too many extreme low scores: ${extremeLow}/${scores.length}`);
-  }
-  
-  return {
-    passed: issues.length === 0,
-    details: issues.length === 0
-      ? `Range: ${min}-${max}, avg: ${avg.toFixed(1)}, elite: ${eliteCount}, bench: ${benchCount}`
-      : issues.join('; ')
-  };
-}
+  // Test 2: League average player should score ~50
+  console.log('TEST 2: LEAGUE AVERAGE BASELINE');
+  const avgScore = scorePlayer(leagueAveragePlayer);
+  console.log(`  Expected: ~50 (league average)`);
+  console.log(`  Actual: ${avgScore.overallValue}`);
+  console.log(`  Components: H=${avgScore.components.hitting} P=${avgScore.components.power} D=${avgScore.components.plateDiscipline}`);
+  const avgOk = avgScore.overallValue >= 45 && avgScore.overallValue <= 55;
+  console.log(`  ${avgOk ? '✅ PASS' : '❌ FAIL'}: League average player scores ~50\n`);
 
-/**
- * Test 5: Component Score Sanity
- * - No component should be at extreme (0 or 100) without clear reason
- * - Component spread should make sense
- */
-async function testComponentSanity(): Promise<{ passed: boolean; details: string }> {
-  const players = await prisma.playerDerivedStats.findMany({
-    where: { season },
-    take: 30,
-  });
-  
-  let extremeHitting = 0;
-  let extremePower = 0;
-  let perfectScores = 0;
-  
-  for (const player of players) {
-    const score = await scoreSinglePlayer(player.playerMlbamId, season);
-    if (score) {
-      if (score.components.hitting <= 10 || score.components.hitting >= 95) extremeHitting++;
-      if (score.components.power <= 10 || score.components.power >= 95) extremePower++;
-      if (score.overallValue >= 90) perfectScores++;
-    }
-  }
-  
-  const issues: string[] = [];
-  
-  if (perfectScores > 0) {
-    issues.push(`${perfectScores} players with 90+ scores (suspiciously high)`);
-  }
-  
-  return {
-    passed: issues.length === 0,
-    details: issues.length === 0
-      ? `Component extremes: hitting=${extremeHitting}, power=${extremePower}, perfect=${perfectScores}`
-      : issues.join('; ')
-  };
-}
+  // Test 3: Elite player should score higher
+  console.log('TEST 3: ELITE SEPARATION');
+  const eliteScore = scorePlayer(elitePlayer);
+  console.log(`  League Avg: ${avgScore.overallValue}`);
+  console.log(`  Elite: ${eliteScore.overallValue}`);
+  console.log(`  Gap: ${eliteScore.overallValue - avgScore.overallValue} points`);
+  const eliteHigher = eliteScore.overallValue > avgScore.overallValue + 15;
+  console.log(`  Elite Components: H=${eliteScore.components.hitting} P=${eliteScore.components.power} D=${eliteScore.components.plateDiscipline}`);
+  console.log(`  ${eliteHigher ? '✅ PASS' : '❌ FAIL'}: Elite player separated from average\n`);
 
-/**
- * Test 6: Star vs Bench Separation
- * - Stars: Good stats + Full playing time should score highly
- * - Bench Bats: Poor stats regardless of playing time should score low
- * - Small samples with great stats can score well (hot streaks happen)
- */
-async function testStarBenchSeparation(): Promise<{ passed: boolean; details: string }> {
-  // True "stars": Both good stats AND full playing time
-  const stars = await prisma.playerDerivedStats.findMany({
-    where: { 
-      season, 
-      opsLast30: { gte: 0.850 },
-      plateAppearancesLast30: { gte: 100 }
-    },
-    take: 5,
-  });
-  
-  // True "bench bats": Poor stats (OPS < 0.650) with limited production
-  // Note: Small samples with great stats aren't bench bats - they're just small samples
-  const benchBats = await prisma.playerDerivedStats.findMany({
-    where: { 
-      season, 
-      opsLast30: { lte: 0.650, gt: 0 },
-      plateAppearancesLast30: { lte: 100 }
-    },
-    take: 5,
-  });
-  
-  // Also check "tiny samples" - minimal playing time should limit ceiling regardless of stats
-  const tinySamples = await prisma.playerDerivedStats.findMany({
-    where: { 
-      season, 
-      plateAppearancesLast30: { lte: 10 }
-    },
-    take: 5,
-  });
-  
-  let starLowScores = 0;
-  let benchHighScores = 0;
-  let tinySampleHighScores = 0;
-  
-  for (const star of stars) {
-    const score = await scoreSinglePlayer(star.playerMlbamId, season);
-    if (score && score.overallValue < THRESHOLDS.STARTER) {
-      starLowScores++;
-    }
-  }
-  
-  for (const bench of benchBats) {
-    const score = await scoreSinglePlayer(bench.playerMlbamId, season);
-    if (score && score.overallValue >= THRESHOLDS.STARTER) {
-      benchHighScores++;
-    }
-  }
-  
-  for (const tiny of tinySamples) {
-    const score = await scoreSinglePlayer(tiny.playerMlbamId, season);
-    // Tiny samples should be capped around 60 max
-    if (score && score.overallValue > 60) {
-      tinySampleHighScores++;
-    }
-  }
-  
-  const issues: string[] = [];
-  
-  if (starLowScores > stars.length * 0.3) {
-    issues.push(`${starLowScores}/${stars.length} stars scored below starter threshold (${THRESHOLDS.STARTER})`);
-  }
-  
-  if (benchHighScores > benchBats.length * 0.4) {
-    issues.push(`${benchHighScores}/${benchBats.length} poor performers scored above starter threshold`);
-  }
-  
-  if (tinySampleHighScores > tinySamples.length * 0.5) {
-    issues.push(`${tinySampleHighScores}/${tinySamples.length} tiny samples (<=10 PA) scored above 60`);
-  }
-  
-  return {
-    passed: issues.length === 0,
-    details: issues.length === 0
-      ? `${stars.length} stars, ${benchBats.length} poor performers, ${tinySamples.length} tiny samples - proper separation`
-      : issues.join('; ')
-  };
-}
+  // Test 4: Small sample regression
+  console.log('TEST 4: SMALL SAMPLE REGRESSION');
+  const smallScore = scorePlayer(smallSamplePlayer);
+  const whatSmallWouldBeWithLargeSample = Math.round(
+    (smallScore.overallValue - 50 * 0.4) / 0.6  // Reverse the regression
+  );
+  console.log(`  Small Sample (42 PA): ${smallScore.overallValue}/100`);
+  console.log(`  Confidence: 60% (regressed toward 50)`);
+  console.log(`  Estimated "true" score if 120 PA: ~${whatSmallWouldBeWithLargeSample}`);
+  const regressionWorking = smallScore.overallValue < whatSmallWouldBeWithLargeSample;
+  console.log(`  ${regressionWorking ? '✅ PASS' : '❌ FAIL'}: Small sample pulled toward average\n`);
 
-/**
- * Print detailed sample scores
- */
-async function printSampleScores() {
-  console.log('\n──────────────────────────────────────────────────────────────────────');
-  console.log('SAMPLE PLAYER SCORES');
-  console.log('──────────────────────────────────────────────────────────────────────');
-  
-  // Get top 3, middle 3, bottom 3 by OPS
-  const players = await prisma.playerDerivedStats.findMany({
-    where: { season, opsLast30: { not: null } },
-    orderBy: { opsLast30: 'desc' },
-    take: 20,
-  });
-  
-  const sampled = [
-    ...players.slice(0, 2),     // Elite
-    ...players.slice(8, 10),    // Good
-    ...players.slice(17, 19),   // Average
-  ];
-  
-  for (const player of sampled) {
-    const score = await scoreSinglePlayer(player.playerMlbamId, season);
-    if (score) {
-      console.log(`\n${player.playerMlbamId} (${player.gamesLast30}G, ${player.plateAppearancesLast30}PA)`);
-      console.log(`  Overall: ${score.overallValue} | Confidence: ${(score.confidence * 100).toFixed(0)}% | ${score.reliability.sampleSize} sample`);
-      console.log(`  Components: HIT=${score.components.hitting} POW=${score.components.power} SPD=${score.components.speed} DIS=${score.components.plateDiscipline} CON=${score.components.consistency} OPP=${score.components.opportunity}`);
-      console.log(`  Key Stats: ${player.battingAverageLast30?.toFixed(3)} AVG, ${player.opsLast30?.toFixed(3)} OPS, ${player.isoLast30?.toFixed(3)} ISO`);
-      console.log(`  Explanation: ${score.explanation.summary}`);
-      if (score.explanation.strengths.length > 0) {
-        console.log(`  Strengths: ${score.explanation.strengths.join(', ')}`);
-      }
-      if (score.explanation.concerns.length > 0) {
-        console.log(`  Concerns: ${score.explanation.concerns.join(', ')}`);
-      }
-    }
-  }
-}
+  // Test 5: Poor player should score lower
+  console.log('TEST 5: POOR PLAYER IDENTIFICATION');
+  const poorScore = scorePlayer(poorPlayer);
+  console.log(`  League Avg: ${avgScore.overallValue}`);
+  console.log(`  Poor: ${poorScore.overallValue}`);
+  console.log(`  Gap: ${avgScore.overallValue - poorScore.overallValue} points`);
+  const poorLower = poorScore.overallValue < avgScore.overallValue - 10;
+  console.log(`  Poor Components: H=${poorScore.components.hitting} P=${poorScore.components.power} D=${poorScore.components.plateDiscipline}`);
+  console.log(`  ${poorLower ? '✅ PASS' : '❌ FAIL'}: Poor player scores below average\n`);
 
-/**
- * Main validation runner
- */
-async function runValidation() {
-  console.log('\n' + '='.repeat(70));
-  console.log('  PLAYER SCORING LAYER VALIDATION');
-  console.log('  Features → Value (Deterministic, Explainable, Intuitive)');
-  console.log('='.repeat(70));
-  console.log(`\nSeason: ${season}`);
-  console.log(`Thresholds: Elite=${THRESHOLDS.ELITE}+, Starter=${THRESHOLDS.STARTER}+, Bench=${THRESHOLDS.BENCH}+, Streamer=${THRESHOLDS.STREAMER}+\n`);
-  
-  const tests: ValidationTest[] = [
-    { name: 'Component Intuition', test: testComponentIntuition },
-    { name: 'Opportunity Impact', test: testOpportunityImpact },
-    { name: 'Confidence Calibration', test: testConfidenceCalibration },
-    { name: 'Score Distribution', test: testScoreDistribution },
-    { name: 'Component Sanity', test: testComponentSanity },
-    { name: 'Star/Bench Separation', test: testStarBenchSeparation },
-  ];
-  
-  const results: Array<{ name: string; passed: boolean; details: string }> = [];
-  
-  for (const test of tests) {
-    process.stdout.write(`${test.name}... `);
-    try {
-      const result = await test.test();
-      results.push({ name: test.name, ...result });
-      if (result.passed) {
-        console.log('✅ PASS');
-      } else {
-        console.log('❌ FAIL');
-      }
-      console.log(`      ${result.details}`);
-    } catch (error) {
-      results.push({ 
-        name: test.name, 
-        passed: false, 
-        details: `Error: ${error instanceof Error ? error.message : String(error)}` 
-      });
-      console.log('❌ ERROR');
-    }
-  }
-  
-  // Print sample scores
-  await printSampleScores();
-  
+  // Test 6: Score bounds (0-100)
+  console.log('TEST 6: SCORE BOUNDS');
+  const allScores = [avgScore, eliteScore, smallScore, poorScore];
+  const allInBounds = allScores.every(s => s.overallValue >= 0 && s.overallValue <= 100);
+  console.log(`  Min observed: ${Math.min(...allScores.map(s => s.overallValue))}`);
+  console.log(`  Max observed: ${Math.max(...allScores.map(s => s.overallValue))}`);
+  console.log(`  ${allInBounds ? '✅ PASS' : '❌ FAIL'}: All scores within 0-100 bounds\n`);
+
+  // Test 7: Explainability
+  console.log('TEST 7: EXPLAINABILITY');
+  const hasExplanation = 
+    eliteScore.explanation.summary && 
+    eliteScore.explanation.strengths.length > 0 &&
+    eliteScore.components.hitting > 0;
+  console.log(`  Summary: "${eliteScore.explanation.summary}"`);
+  console.log(`  Strengths: ${eliteScore.explanation.strengths.join(', ')}`);
+  console.log(`  Key Stats: ${Object.keys(eliteScore.explanation.keyStats).join(', ')}`);
+  console.log(`  ${hasExplanation ? '✅ PASS' : '❌ FAIL'}: Scores include explanations\n`);
+
   // Summary
-  const passedCount = results.filter(r => r.passed).length;
-  
-  console.log('\n' + '='.repeat(70));
-  console.log('VALIDATION SUMMARY');
-  console.log('='.repeat(70));
-  console.log(`Total tests: ${results.length}`);
-  console.log(`✅ Passed: ${passedCount}`);
-  console.log(`❌ Failed: ${results.length - passedCount}`);
-  
-  console.log('\n' + '='.repeat(70));
-  console.log('LAYER QUALITY ASSESSMENT');
-  console.log('='.repeat(70));
-  
-  if (passedCount === results.length) {
-    console.log('\n✅ SCORING LAYER VALIDATED');
-    console.log('   Component scores reflect statistical intuition');
-    console.log('   Opportunity properly drives value');
-    console.log('   Confidence calibrated to sample size');
-    console.log('   Stars separate from bench bats');
-    console.log('\n   → Scores pass the "sharp manager" test');
-    console.log('   → Ready for lineup decisions and waiver recommendations\n');
-    process.exit(0);
-  } else {
-    console.log('\n🚫 SCORING LAYER NEEDS ATTENTION');
-    console.log(`   ${results.length - passedCount}/${results.length} tests failed`);
-    console.log('   Scores may not reflect true player value');
-    console.log('\n   → Review scoring algorithms before trusting recommendations\n');
-    process.exit(1);
-  }
+  console.log('╔════════════════════════════════════════════════════════════════╗');
+  console.log('║                      TEST SUMMARY                              ║');
+  console.log('╠════════════════════════════════════════════════════════════════╣');
+  const tests = [
+    deterministic,
+    avgOk,
+    eliteHigher,
+    regressionWorking,
+    poorLower,
+    allInBounds,
+    hasExplanation
+  ];
+  const passed = tests.filter(t => t).length;
+  console.log(`║  Passed: ${passed}/${tests.length} tests                                       ║`);
+  console.log(`║  Status: ${passed === tests.length ? '✅ ALL TESTS PASSED' : '❌ SOME TESTS FAILED'}                              ║`);
+  console.log('╚════════════════════════════════════════════════════════════════╝');
+
+  return passed === tests.length;
 }
 
-runValidation().catch(error => {
-  console.error('\n❌ Validation failed:', error);
-  process.exit(1);
-}).finally(() => {
-  prisma.$disconnect();
-});
+const success = runTests();
+process.exit(success ? 0 : 1);

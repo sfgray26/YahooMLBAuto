@@ -4,9 +4,14 @@
  * Deterministic, stateless transformation of pitcher derived features → value scores.
  * Pure function: same inputs always produce same outputs.
  * 
+ * ARCHITECTURAL PARITY WITH HITTERS:
+ * - Z-score based component scoring
+ * - Confidence-based regression to mean
+ * - League-relative, not fixed thresholds
+ * 
  * PITCHER-SPECIFIC COMPONENTS:
  * - command: Control (BB%, K/BB ratio)
- * - stuff: Raw ability (velocity, movement, whiff%)  
+ * - stuff: Raw ability (velocity, movement, whiff%)
  * - results: Outcome quality (ERA, WHIP, FIP)
  * - workload: Innings, rest, pitch count trends
  * - consistency: Variance in performance
@@ -16,11 +21,58 @@
 import type { PitcherDerivedFeatures } from './derived.js';
 
 // ============================================================================
+// League Statistics (for Z-score calculations)
+// ============================================================================
+
+const LEAGUE_PITCHING_2025 = {
+  // Command (lower BB% is better, higher K/BB is better)
+  walkRate: 0.085,
+  walkRate_std: 0.025,
+  kToBB: 3.0,
+  kToBB_std: 1.2,
+  
+  // Stuff
+  kRate: 0.220,
+  kRate_std: 0.045,
+  swingingStrike: 0.105,
+  swingingStrike_std: 0.025,
+  
+  // Results (lower is better, so Z-scores are inverted)
+  era: 4.20,
+  era_std: 1.50,
+  whip: 1.30,
+  whip_std: 0.20,
+  fip: 4.20,
+  fip_std: 1.20,
+  
+  // Workload (higher IP is better)
+  ipPerApp: 5.2,
+  ipPerApp_std: 1.0,
+};
+
+/**
+ * Calculate Z-score: (value - mean) / std_dev
+ */
+function zScore(value: number, mean: number, stdDev: number): number {
+  if (stdDev === 0) return 0;
+  return (value - mean) / stdDev;
+}
+
+/**
+ * Convert Z-score to 0-100 scale
+ * Z = 0 → 50 (league average)
+ * Positive Z = above average (higher score)
+ */
+function zScoreTo100(z: number, scaleFactor: number = 10): number {
+  return Math.max(0, Math.min(100, 50 + z * scaleFactor));
+}
+
+// ============================================================================
 // Types
 // ============================================================================
 
 export interface PitcherScore {
-  // Identity (shared with hitters - same player_id/mlbamId)
+  // Identity (shared with hitters)
   playerId: string;
   playerMlbamId: string;
   season: number;
@@ -32,23 +84,23 @@ export interface PitcherScore {
   // Overall value (0-100 scale)
   overallValue: number;
 
-  // Component scores (0-100 scale) - PITCHER SPECIFIC
+  // Component scores (0-100 scale)
   components: {
-    command: number;      // Control, BB%, K/BB
-    stuff: number;        // Velocity, movement, whiff ability
-    results: number;      // ERA, WHIP, FIP quality
-    workload: number;     // Innings capacity, rest, durability
-    consistency: number;  // Low volatility in performance
-    matchup: number;      // Opponent quality, park factors
+    command: number;
+    stuff: number;
+    results: number;
+    workload: number;
+    consistency: number;
+    matchup: number;
   };
 
-  // Role context (critical for fantasy)
+  // Role context
   role: {
     currentRole: 'SP' | 'RP' | 'CL' | 'SWING';
     isCloser: boolean;
     holdsEligible: boolean;
     expectedInningsPerWeek: number;
-    startProbabilityNext7: number; // For SP/RP swingmen
+    startProbabilityNext7: number;
   };
 
   // Confidence in the score (0-1)
@@ -57,7 +109,7 @@ export interface PitcherScore {
   // Statistical reliability
   reliability: {
     sampleSize: 'insufficient' | 'small' | 'adequate' | 'large';
-    battersToReliable: number; // How many more BF until reliable
+    battersToReliable: number;
     statsReliable: boolean;
   };
 
@@ -69,7 +121,7 @@ export interface PitcherScore {
     keyStats: Record<string, number | string>;
   };
 
-  // Raw inputs (for transparency)
+  // Raw inputs
   inputs: {
     derivedFeaturesVersion: string;
     computedAt: Date;
@@ -89,261 +141,183 @@ interface PitcherScoringWeights {
   matchup: number;
 }
 
-// Slightly different weights than hitters - results matter more for pitchers
 const DEFAULT_WEIGHTS: PitcherScoringWeights = {
   command: 0.20,
   stuff: 0.20,
-  results: 0.25,      // Higher weight - outcomes matter
+  results: 0.25,
   workload: 0.15,
   consistency: 0.15,
-  matchup: 0.05,      // Lower weight - matchup dependent
+  matchup: 0.05,
 };
 
-// Closer weights - different priorities
 const CLOSER_WEIGHTS: PitcherScoringWeights = {
   command: 0.15,
-  stuff: 0.30,        // Stuff matters more for RPs
-  results: 0.30,      // ERA/WHIP critical
-  workload: 0.05,     // Less important for closers
+  stuff: 0.30,
+  results: 0.30,
+  workload: 0.05,
   consistency: 0.15,
   matchup: 0.05,
 };
 
 // ============================================================================
-// Pure Scoring Functions
+// Z-Score Based Scoring Functions
 // ============================================================================
 
 /**
- * Calculate command component score.
- * Based on BB%, K/BB ratio, control metrics.
+ * Command: Control metrics (BB%, K/BB)
+ * Lower BB% is better (invert), higher K/BB is better
  */
 function scoreCommand(rates: PitcherDerivedFeatures['rates']): number {
-  let score = 50;
-
-  // BB% contribution (inverse - lower is better)
+  let bbZ = 0;
+  let kbbZ = 0;
+  let components = 0;
+  
+  // Walk rate (lower is better, so invert Z)
   if (rates.walkRateLast30 !== null) {
-    const bbRate = rates.walkRateLast30;
-    if (bbRate <= 0.05) score += 20;      // Elite control
-    else if (bbRate <= 0.06) score += 15;
-    else if (bbRate <= 0.07) score += 10;
-    else if (bbRate <= 0.08) score += 5;
-    else if (bbRate >= 0.12) score -= 15;  // Poor control
-    else if (bbRate >= 0.10) score -= 10;
+    bbZ = -zScore(rates.walkRateLast30, LEAGUE_PITCHING_2025.walkRate, LEAGUE_PITCHING_2025.walkRate_std);
+    components++;
   }
-
-  // K/BB ratio contribution
+  
+  // K/BB ratio (higher is better)
   if (rates.kToBBRatioLast30 !== null) {
-    const ratio = rates.kToBBRatioLast30;
-    if (ratio >= 5.0) score += 15;        // Elite
-    else if (ratio >= 4.0) score += 12;
-    else if (ratio >= 3.0) score += 8;
-    else if (ratio >= 2.5) score += 5;
-    else if (ratio < 1.5) score -= 15;     // Poor
-    else if (ratio < 2.0) score -= 10;
+    kbbZ = zScore(rates.kToBBRatioLast30, LEAGUE_PITCHING_2025.kToBB, LEAGUE_PITCHING_2025.kToBB_std);
+    components++;
   }
-
-  // First pitch strike %
-  if (rates.firstPitchStrikeRate !== null) {
-    const fps = rates.firstPitchStrikeRate;
-    if (fps >= 0.65) score += 10;
-    else if (fps >= 0.62) score += 5;
-    else if (fps < 0.58) score -= 10;
-  }
-
-  return Math.max(0, Math.min(100, score));
+  
+  if (components === 0) return 50;
+  
+  // Average the Z-scores
+  const combinedZ = (bbZ + kbbZ) / components;
+  return zScoreTo100(combinedZ, 12);
 }
 
 /**
- * Calculate stuff component score.
- * Based on velocity, whiff%, K%, movement metrics.
+ * Stuff: Raw ability (K%, swinging strike%)
+ * Higher is better
  */
 function scoreStuff(rates: PitcherDerivedFeatures['rates']): number {
-  let score = 50;
-
-  // K% contribution
+  let kZ = 0;
+  let swStrZ = 0;
+  let components = 0;
+  
+  // K% (higher is better)
   if (rates.strikeoutRateLast30 !== null) {
-    const kRate = rates.strikeoutRateLast30;
-    if (kRate >= 0.30) score += 25;       // Elite
-    else if (kRate >= 0.27) score += 20;
-    else if (kRate >= 0.25) score += 15;
-    else if (kRate >= 0.22) score += 10;
-    else if (kRate >= 0.20) score += 5;
-    else if (kRate < 0.15) score -= 15;    // Poor
-    else if (kRate < 0.18) score -= 10;
+    kZ = zScore(rates.strikeoutRateLast30, LEAGUE_PITCHING_2025.kRate, LEAGUE_PITCHING_2025.kRate_std);
+    components++;
   }
-
-  // Swinging strike % (whiff ability)
+  
+  // Swinging strike % (higher is better)
   if (rates.swingingStrikeRate !== null) {
-    const swStr = rates.swingingStrikeRate;
-    if (swStr >= 0.14) score += 15;
-    else if (swStr >= 0.12) score += 10;
-    else if (swStr >= 0.10) score += 5;
-    else if (swStr < 0.08) score -= 10;
+    swStrZ = zScore(rates.swingingStrikeRate, LEAGUE_PITCHING_2025.swingingStrike, LEAGUE_PITCHING_2025.swingingStrike_std);
+    components++;
   }
-
-  // Velocity (if available)
-  if (rates.avgVelocity !== null) {
-    const velo = rates.avgVelocity;
-    if (velo >= 96) score += 10;
-    else if (velo >= 94) score += 5;
-    else if (velo < 90) score -= 10;
-  }
-
-  return Math.max(0, Math.min(100, score));
+  
+  if (components === 0) return 50;
+  
+  const combinedZ = (kZ + swStrZ) / components;
+  // Stuff varies more, so use higher scale
+  return zScoreTo100(combinedZ, 15);
 }
 
 /**
- * Calculate results component score.
- * Based on ERA, WHIP, FIP, xFIP.
+ * Results: Outcome quality (ERA, WHIP, FIP)
+ * Lower is better for all, so invert Z
  */
 function scoreResults(rates: PitcherDerivedFeatures['rates']): number {
-  let score = 50;
-
-  // ERA contribution
+  let eraZ = 0;
+  let whipZ = 0;
+  let fipZ = 0;
+  let components = 0;
+  
+  // ERA (lower is better, invert)
   if (rates.eraLast30 !== null) {
-    const era = rates.eraLast30;
-    if (era <= 2.50) score += 30;         // Elite
-    else if (era <= 3.00) score += 25;
-    else if (era <= 3.50) score += 20;
-    else if (era <= 4.00) score += 15;
-    else if (era <= 4.50) score += 10;
-    else if (era >= 6.00) score -= 25;     // Disastrous
-    else if (era >= 5.50) score -= 20;
-    else if (era >= 5.00) score -= 15;
+    eraZ = -zScore(rates.eraLast30, LEAGUE_PITCHING_2025.era, LEAGUE_PITCHING_2025.era_std);
+    components++;
   }
-
-  // WHIP contribution
+  
+  // WHIP (lower is better, invert)
   if (rates.whipLast30 !== null) {
-    const whip = rates.whipLast30;
-    if (whip <= 1.00) score += 20;
-    else if (whip <= 1.10) score += 15;
-    else if (whip <= 1.20) score += 10;
-    else if (whip <= 1.30) score += 5;
-    else if (whip >= 1.60) score -= 20;
-    else if (whip >= 1.50) score -= 15;
-    else if (whip >= 1.40) score -= 10;
+    whipZ = -zScore(rates.whipLast30, LEAGUE_PITCHING_2025.whip, LEAGUE_PITCHING_2025.whip_std);
+    components++;
   }
-
-  // FIP vs ERA gap (luck indicator)
-  if (rates.fipLast30 !== null && rates.eraLast30 !== null) {
-    const gap = rates.eraLast30 - rates.fipLast30;
-    if (gap > 1.0) score -= 10;           // ERA likely to regress up
-    else if (gap < -1.0) score += 5;      // ERA likely to regress down
+  
+  // FIP (lower is better, invert)
+  if (rates.fipLast30 !== null) {
+    fipZ = -zScore(rates.fipLast30, LEAGUE_PITCHING_2025.fip, LEAGUE_PITCHING_2025.fip_std);
+    components++;
   }
-
-  return Math.max(0, Math.min(100, score));
+  
+  if (components === 0) return 50;
+  
+  const combinedZ = (eraZ + whipZ + fipZ) / components;
+  return zScoreTo100(combinedZ, 12);
 }
 
 /**
- * Calculate workload component score.
- * Based on innings pitched, rest patterns, pitch counts.
+ * Workload: Innings capacity
+ * Higher IP per appearance is better
  */
 function scoreWorkload(volume: PitcherDerivedFeatures['volume']): number {
-  let score = 50;
-
-  // Innings per start/appearance
   const ipPerApp = volume.appearancesLast30 > 0
     ? volume.inningsPitchedLast30 / volume.appearancesLast30
     : 0;
-
-  if (ipPerApp >= 6.0) score += 20;       // Workhorse
-  else if (ipPerApp >= 5.5) score += 15;
-  else if (ipPerApp >= 5.0) score += 10;
-  else if (ipPerApp >= 4.0) score += 5;
-  else if (ipPerApp < 3.0) score -= 15;   // Can't get deep
-
-  // Total innings volume
-  if (volume.inningsPitchedLast30 >= 40) score += 10;
-  else if (volume.inningsPitchedLast30 >= 30) score += 5;
-  else if (volume.inningsPitchedLast30 < 15) score -= 10;
-
-  // Pitch count efficiency
-  if (volume.pitchesPerInning !== null) {
-    const ppi = volume.pitchesPerInning;
-    if (ppi <= 15) score += 10;           // Efficient
-    else if (ppi >= 20) score -= 10;      // Inefficient
-  }
-
-  // Rest patterns
-  if (volume.daysSinceLastAppearance !== null) {
-    const rest = volume.daysSinceLastAppearance;
-    if (rest >= 4 && rest <= 6) score += 5;  // Ideal rest
-    else if (rest < 3) score -= 10;          // Short rest risk
-  }
-
-  return Math.max(0, Math.min(100, score));
+  
+  if (ipPerApp === 0) return 50;
+  
+  const z = zScore(ipPerApp, LEAGUE_PITCHING_2025.ipPerApp, LEAGUE_PITCHING_2025.ipPerApp_std);
+  return zScoreTo100(z, 10);
 }
 
 /**
- * Calculate consistency component score.
- * Based on volatility in performance.
+ * Consistency: Performance variance
+ * Higher quality start rate, lower blow-up rate is better
  */
 function scoreConsistency(volatility: PitcherDerivedFeatures['volatility']): number {
+  // Start with league average (50)
   let score = 50;
-
-  // Quality start rate
+  
+  // Quality start rate (higher is better)
   if (volatility.qualityStartRate !== null) {
-    const qsRate = volatility.qualityStartRate;
-    if (qsRate >= 0.70) score += 20;
-    else if (qsRate >= 0.60) score += 15;
-    else if (qsRate >= 0.50) score += 10;
-    else if (qsRate >= 0.40) score += 5;
-    else if (qsRate < 0.30) score -= 15;
+    const qsZ = zScore(volatility.qualityStartRate, 0.40, 0.15);
+    score += qsZ * 10;
   }
-
-  // Blow-up rate (inverse - lower is better)
+  
+  // Blow-up rate (lower is better, invert)
   if (volatility.blowUpRate !== null) {
-    const buRate = volatility.blowUpRate;
-    if (buRate <= 0.10) score += 15;      // Rare blow-ups
-    else if (buRate <= 0.20) score += 10;
-    else if (buRate >= 0.40) score -= 20;  // Frequent blow-ups
-    else if (buRate >= 0.30) score -= 15;
+    const buZ = -zScore(volatility.blowUpRate, 0.25, 0.10);
+    score += buZ * 10;
   }
-
-  // ERA volatility
-  if (volatility.eraVolatility !== null) {
-    const eraVol = volatility.eraVolatility;
-    if (eraVol <= 1.5) score += 10;
-    else if (eraVol >= 3.0) score -= 10;
-  }
-
+  
   return Math.max(0, Math.min(100, score));
 }
 
 /**
- * Calculate matchup component score.
- * Based on opponent quality, park factors, etc.
+ * Matchup: Opponent quality, park factors
+ * Lower opponent OPS is better (invert)
  */
 function scoreMatchup(context: PitcherDerivedFeatures['context']): number {
   let score = 50;
-
-  // Opponent quality (OPP OPS)
+  
+  // Opponent quality (lower OPS is better for pitcher, so invert)
   if (context.opponentOps !== null) {
-    const ops = context.opponentOps;
-    if (ops <= 0.650) score += 15;        // Weak opponent
-    else if (ops <= 0.700) score += 10;
-    else if (ops >= 0.800) score -= 15;   // Strong opponent
-    else if (ops >= 0.750) score -= 10;
+    const opsZ = -zScore(context.opponentOps, 0.725, 0.050);
+    score += opsZ * 10;
   }
-
-  // Park factor (100 = neutral)
+  
+  // Park factor (lower is better for pitcher, invert)
   if (context.parkFactor !== null) {
-    const pf = context.parkFactor;
-    if (pf <= 95) score += 10;            // Pitcher-friendly park
-    else if (pf >= 110) score -= 10;      // Hitter-friendly park
+    // Park factor: 100 = neutral, <100 favors pitchers
+    const pfZ = -zScore(context.parkFactor, 100, 10);
+    score += pfZ * 5;
   }
-
-  // Home/away (slight edge for home)
-  if (context.isHome !== null) {
-    if (context.isHome) score += 5;
-  }
-
+  
   return Math.max(0, Math.min(100, score));
 }
 
-/**
- * Determine pitcher role and related metrics.
- */
+// ============================================================================
+// Role Determination (Unchanged - still accurate)
+// ============================================================================
+
 function determineRole(
   volume: PitcherDerivedFeatures['volume'],
   context: PitcherDerivedFeatures['context']
@@ -358,7 +332,6 @@ function determineRole(
   let isCloser = false;
   let holdsEligible = false;
 
-  // Role determination logic
   if (gamesSaved >= 5 || context.isCloser === true) {
     currentRole = 'CL';
     isCloser = true;
@@ -371,17 +344,15 @@ function determineRole(
     currentRole = 'SWING';
   }
 
-  // Expected innings per week (based on role)
   let expectedInningsPerWeek = 0;
   if (currentRole === 'SP') {
-    expectedInningsPerWeek = 12;  // ~2 starts × 6 innings
+    expectedInningsPerWeek = 12;
   } else if (currentRole === 'RP' || currentRole === 'CL') {
-    expectedInningsPerWeek = 3;   // ~3-4 appearances
+    expectedInningsPerWeek = 3;
   } else if (currentRole === 'SWING') {
-    expectedInningsPerWeek = 6;   // Mixed usage
+    expectedInningsPerWeek = 6;
   }
 
-  // Start probability (for swingmen)
   const startProbabilityNext7 = context.scheduledStartNext7 ? 1.0 :
     currentRole === 'SP' ? 0.9 :
     currentRole === 'SWING' ? 0.3 : 0.0;
@@ -395,46 +366,48 @@ function determineRole(
   };
 }
 
-/**
- * Calculate overall confidence in the pitcher score.
- */
+// ============================================================================
+// Confidence Calculation (Aligned with hitters)
+// ============================================================================
+
+function calculateSampleConfidence(battersFaced: number): number {
+  // Aligned with hitter PA thresholds
+  if (battersFaced >= 200) return 1.0;      // Full confidence
+  else if (battersFaced >= 150) return 0.90; // High
+  else if (battersFaced >= 100) return 0.75; // Good
+  else if (battersFaced >= 50) return 0.60;  // Moderate
+  else return 0.45;                          // Low
+}
+
 function calculateConfidence(
   volume: PitcherDerivedFeatures['volume'],
   stabilization: PitcherDerivedFeatures['stabilization']
 ): { confidence: number; sampleSize: PitcherScore['reliability']['sampleSize'] } {
-  let confidence = 0.5;
-
-  // Based on batters faced
-  const bf = volume.battersFacedLast30;
-  if (bf >= 200) confidence += 0.2;
-  else if (bf >= 150) confidence += 0.15;
-  else if (bf >= 100) confidence += 0.1;
-  else if (bf < 50) confidence -= 0.2;
-
-  // Based on appearances
-  if (volume.appearancesLast30 >= 6) confidence += 0.1;
-  else if (volume.appearancesLast30 < 3) confidence -= 0.1;
-
-  // Based on stat reliability
-  if (stabilization.eraReliable) confidence += 0.15;
-  else if (stabilization.whipReliable) confidence += 0.1;
-
-  // Determine sample size category
+  const sampleConfidence = calculateSampleConfidence(volume.battersFacedLast30);
+  
+  // Additional reliability from stabilization
+  let statConfidence = 0.5;
+  if (stabilization.eraReliable) statConfidence += 0.15;
+  if (stabilization.whipReliable) statConfidence += 0.1;
+  if (volume.appearancesLast30 >= 6) statConfidence += 0.1;
+  
+  // Combined confidence
+  const confidence = Math.round((sampleConfidence + statConfidence) / 2 * 100) / 100;
+  
+  // Sample size category
   let sampleSize: PitcherScore['reliability']['sampleSize'];
-  if (bf < 50) sampleSize = 'insufficient';
-  else if (bf < 100) sampleSize = 'small';
-  else if (bf < 175) sampleSize = 'adequate';
+  if (volume.battersFacedLast30 < 50) sampleSize = 'insufficient';
+  else if (volume.battersFacedLast30 < 100) sampleSize = 'small';
+  else if (volume.battersFacedLast30 < 175) sampleSize = 'adequate';
   else sampleSize = 'large';
-
-  return {
-    confidence: Math.max(0, Math.min(1, confidence)),
-    sampleSize,
-  };
+  
+  return { confidence, sampleSize };
 }
 
-/**
- * Generate explanation for the pitcher score.
- */
+// ============================================================================
+// Explanation Generation
+// ============================================================================
+
 function generateExplanation(
   components: PitcherScore['components'],
   rates: PitcherDerivedFeatures['rates'],
@@ -443,7 +416,6 @@ function generateExplanation(
   const strengths: string[] = [];
   const concerns: string[] = [];
 
-  // Identify strengths
   if (components.command >= 75) strengths.push('Elite control');
   else if (components.command >= 65) strengths.push('Good command');
 
@@ -456,20 +428,17 @@ function generateExplanation(
   if (components.workload >= 75) strengths.push('Workhorse workload');
   if (components.consistency >= 75) strengths.push('Highly consistent');
 
-  // Role-specific strengths
   if (role.isCloser) strengths.push('Closer role - save opportunities');
   else if (role.holdsEligible && components.stuff >= 65) {
     strengths.push('Setup role with strikeout upside');
   }
 
-  // Identify concerns
   if (components.command <= 40) concerns.push('Control issues');
   if (components.stuff <= 40) concerns.push('Limited stuff');
   if (components.results <= 40) concerns.push('Poor results');
   if (components.workload <= 40) concerns.push('Workload concerns');
   if (components.consistency <= 40) concerns.push('High volatility');
 
-  // Summary based on overall profile
   let summary = '';
   const avgComponent = Object.values(components).reduce((a, b) => a + b, 0) / 6;
 
@@ -508,35 +477,29 @@ function generateExplanation(
 // Main Scoring Function
 // ============================================================================
 
-/**
- * Score a pitcher based on derived features.
- * Pure function - same inputs always produce same outputs.
- */
 export function scorePitcher(
   features: PitcherDerivedFeatures,
   options: {
     weights?: Partial<PitcherScoringWeights>;
   } = {}
 ): PitcherScore {
-  // Determine role first (affects weights)
   const role = determineRole(features.volume, features.context);
   
-  // Select appropriate weights
   const baseWeights = role.isCloser ? CLOSER_WEIGHTS : DEFAULT_WEIGHTS;
   const weights = { ...baseWeights, ...options.weights };
 
-  // Calculate component scores
+  // Calculate component scores (Z-score based)
   const components: PitcherScore['components'] = {
-    command: scoreCommand(features.rates),
-    stuff: scoreStuff(features.rates),
-    results: scoreResults(features.rates),
-    workload: scoreWorkload(features.volume),
-    consistency: scoreConsistency(features.volatility),
-    matchup: scoreMatchup(features.context),
+    command: Math.round(scoreCommand(features.rates)),
+    stuff: Math.round(scoreStuff(features.rates)),
+    results: Math.round(scoreResults(features.rates)),
+    workload: Math.round(scoreWorkload(features.volume)),
+    consistency: Math.round(scoreConsistency(features.volatility)),
+    matchup: Math.round(scoreMatchup(features.context)),
   };
 
-  // Calculate weighted overall value
-  const overallValue = Math.round(
+  // Calculate raw weighted overall value
+  const rawOverallValue = Math.round(
     components.command * weights.command +
     components.stuff * weights.stuff +
     components.results * weights.results +
@@ -545,13 +508,21 @@ export function scorePitcher(
     components.matchup * weights.matchup
   );
 
-  // Calculate confidence
+  // Apply confidence-based regression to the mean (PARITY WITH HITTERS)
+  const pa = features.volume.battersFacedLast30;
+  const sampleConfidence = calculateSampleConfidence(pa);
+  
+  const leagueAverage = 50;
+  const overallValue = Math.round(
+    (rawOverallValue * sampleConfidence) + (leagueAverage * (1 - sampleConfidence))
+  );
+
+  // Calculate confidence for display
   const { confidence, sampleSize } = calculateConfidence(
     features.volume,
     features.stabilization
   );
 
-  // Generate explanation
   const explanation = generateExplanation(components, features.rates, role);
 
   return {
@@ -577,9 +548,6 @@ export function scorePitcher(
   };
 }
 
-/**
- * Batch score multiple pitchers.
- */
 export function scorePitchers(
   featuresList: PitcherDerivedFeatures[],
   options: {
