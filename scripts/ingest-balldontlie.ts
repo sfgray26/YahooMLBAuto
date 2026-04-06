@@ -12,6 +12,7 @@
 import { PrismaClient } from '@prisma/client';
 import { BalldontlieProvider } from '../packages/data/src/providers/balldontlie.js';
 import { MemoryCache } from '../packages/data/src/providers/cache.js';
+import { CURRENT_SEASON, isValidIngestionSeason } from '../packages/data/src/config/season.js';
 
 const prisma = new PrismaClient();
 
@@ -225,7 +226,24 @@ async function main(): Promise<void> {
     .filter(arg => arg.startsWith('--player='))
     .map(arg => arg.split('=')[1]);
   
-  const season = 2025; // TODO: Make configurable
+  // Parse optional season override
+  const seasonArg = args.find(arg => arg.startsWith('--season='));
+  const season = seasonArg ? parseInt(seasonArg.split('=')[1]) : CURRENT_SEASON;
+  
+  // Validate season
+  if (!isValidIngestionSeason(season)) {
+    console.error(`\n❌ Season ${season} is not valid for ingestion.`);
+    console.error(`   Valid seasons: 2022-2025`);
+    console.error(`   Current configured season: ${CURRENT_SEASON}`);
+    console.error(`\n   To check 2026 data availability:`);
+    console.error(`   npx tsx scripts/check-2026-data.ts`);
+    process.exit(1);
+  }
+  
+  console.log(`📅 Ingestion season: ${season}`);
+  if (season !== CURRENT_SEASON) {
+    console.log(`   ⚠️  Using non-standard season (current: ${CURRENT_SEASON})`);
+  }
   
   try {
     await runIngestion({ season, playerIds: playerIds.length > 0 ? playerIds : undefined, dryRun, verbose });

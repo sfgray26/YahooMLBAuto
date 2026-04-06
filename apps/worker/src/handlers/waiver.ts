@@ -77,7 +77,7 @@ export async function handleWaiverRecommendation(
         teamName: 'Your Team',
         leagueName: 'UAT League',
         platform: 'yahoo',
-        season: 2025,
+        season: 2026,
         scoringPeriod: {
           type: 'daily',
           startDate: new Date().toISOString(),
@@ -179,7 +179,7 @@ async function getPlayerScores(
   request: WaiverRecommendationRequest
 ): Promise<Map<string, PlayerScore>> {
   const playerScores = new Map<string, PlayerScore>();
-  const season = 2025; // Hardcoded for UAT - database has 2025 data
+  const season = 2026; // Current MLB season
 
   // Collect all mlbamIds from roster and available players
   const rosterIds = request.currentRoster.map((s) => s.player.mlbamId);

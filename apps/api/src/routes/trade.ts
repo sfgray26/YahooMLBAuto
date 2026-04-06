@@ -295,7 +295,7 @@ function createMinimalTeamState(teamInfo?: { teamId?: string; teamName?: string 
       teamName: teamInfo?.teamName || 'Your Team',
       leagueName: 'Test League',
       platform: 'yahoo',
-      season: 2025,
+      season: 2026,
       scoringPeriod: {
         type: 'weekly',
         startDate: new Date().toISOString(),

@@ -19,7 +19,7 @@ export async function monteCarloTestRoutes(
     try {
       // Get player derived stats
       const derivedRecord = await prisma.playerDerivedStats.findFirst({
-        where: { playerMlbamId: mlbamId, season: 2025 },
+        where: { playerMlbamId: mlbamId, season: 2026 },
         orderBy: { computedAt: 'desc' },
       });
 
@@ -33,7 +33,7 @@ export async function monteCarloTestRoutes(
 
       // Get player name from roster if available
       const dailyStats = await prisma.playerDailyStats.findFirst({
-        where: { playerMlbamId: mlbamId, season: 2025 },
+        where: { playerMlbamId: mlbamId, season: 2026 },
       });
 
       // Build derived stats object
@@ -174,11 +174,11 @@ export async function monteCarloTestRoutes(
     try {
       const [derivedA, derivedB] = await Promise.all([
         prisma.playerDerivedStats.findFirst({
-          where: { playerMlbamId: playerA, season: 2025 },
+          where: { playerMlbamId: playerA, season: 2026 },
           orderBy: { computedAt: 'desc' },
         }),
         prisma.playerDerivedStats.findFirst({
-          where: { playerMlbamId: playerB, season: 2025 },
+          where: { playerMlbamId: playerB, season: 2026 },
           orderBy: { computedAt: 'desc' },
         }),
       ]);
