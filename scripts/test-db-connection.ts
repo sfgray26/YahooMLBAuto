@@ -1,16 +1,30 @@
 #!/usr/bin/env node
 /**
  * Simple Database Connection Test
- * Tests Prisma connection to Railway PostgreSQL without Redis dependency
+ * Tests Prisma connection to the configured PostgreSQL instance without Redis dependency
  */
 
-import { prisma } from '@cbb/infrastructure';
+import 'dotenv/config';
+import { v4 as uuidv4 } from 'uuid';
+import { prisma } from './lib/prisma.js';
+import { assertValidationEnvironment } from './lib/validation-preflight.js';
 
 async function main() {
   const startTime = Date.now();
-  console.log('🧪 Testing Railway Database Connection...\n');
+  console.log('🧪 Testing Database Connection...\n');
 
   try {
+    const environment = await assertValidationEnvironment({
+      requiredTables: [
+        'persisted_decisions',
+        'lineup_decision_details',
+        'waiver_decision_details',
+        'player_daily_stats',
+        'raw_ingestion_logs',
+      ],
+    });
+    console.log(`Database: ${environment.databaseName} @ ${environment.databaseHost}\n`);
+
     // Test 1: Basic connection
     console.log('1️⃣ Testing basic connection...');
     await prisma.$connect();
@@ -50,12 +64,13 @@ async function main() {
         season: 2025,
         status: 'pending',
         confidence: 0.85,
-        humanReviewRequired: false,
-        decidedAt: new Date(),
+        confidenceFactors: ['validation:test'],
         teamStateSnapshot: { test: true, source: 'connection-test' },
         scoresSnapshot: {},
-        monteCarloSnapshot: {},
+        monteCarloData: {},
         decisionPayload: { message: 'Test decision from connection test' },
+        traceId: uuidv4(),
+        reason: 'Validation smoke test',
       },
     });
     console.log(`   ✅ Created decision: ${testDecision.decisionId}\n`);

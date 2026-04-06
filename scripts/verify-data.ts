@@ -1,10 +1,17 @@
 #!/usr/bin/env node
+require('dotenv/config');
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
 async function main() {
+  const { assertValidationEnvironment } = await import('./lib/validation-preflight.js');
+  const environment = await assertValidationEnvironment({
+    requiredTables: ['player_game_logs', 'player_derived_stats', 'raw_ingestion_logs'],
+  });
+
   console.log('📊 Database Verification\n');
   console.log('═'.repeat(60));
+  console.log(`\nDatabase: ${environment.databaseName} @ ${environment.databaseHost}`);
   
   // Count game logs
   const totalGames = await prisma.playerGameLog.count();

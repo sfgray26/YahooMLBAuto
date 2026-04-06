@@ -3,11 +3,17 @@
  * Check Ingestion Log Details
  */
 
-import { PrismaClient } from '@prisma/client';
-const prisma = new PrismaClient();
+import 'dotenv/config';
+import { prisma } from './lib/prisma.js';
+import { assertValidationEnvironment } from './lib/validation-preflight.js';
 
 async function main() {
+  const environment = await assertValidationEnvironment({
+    requiredTables: ['raw_ingestion_logs', 'player_daily_stats'],
+  });
+
   console.log('📥 Checking Ingestion Log\n');
+  console.log(`Database: ${environment.databaseName} @ ${environment.databaseHost}\n`);
 
   try {
     const logs = await prisma.rawIngestionLog.findMany({
@@ -65,7 +71,7 @@ async function main() {
 
     console.log('\n✅ Done');
   } catch (error) {
-    console.error('❌ Error:', error.message);
+    console.error('❌ Error:', error instanceof Error ? error.message : String(error));
   } finally {
     await prisma.$disconnect();
   }

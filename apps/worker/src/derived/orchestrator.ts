@@ -7,8 +7,10 @@
 
 import { prisma } from '@cbb/infrastructure';
 import { v4 as uuidv4 } from 'uuid';
-import { computeDerivedFeatures } from './compute.js';
-import { storeDerivedFeatures } from './storage.js';
+import {
+  batchComputeDerivedStatsFromGameLogs,
+  computeDerivedStatsFromGameLogs,
+} from './fromGameLogs.js';
 
 interface ComputeAllFeaturesInput {
   season: number;
@@ -31,8 +33,6 @@ export async function computeAllDerivedFeatures(
 ): Promise<ComputeAllFeaturesResult> {
   const startTime = Date.now();
   const traceId = uuidv4();
-  const errors: string[] = [];
-
   const { season, dryRun = false } = input;
 
   console.log(`[DERIVED] Starting feature computation for season ${season}`, {
@@ -41,14 +41,12 @@ export async function computeAllDerivedFeatures(
   });
 
   try {
-    // Get all unique players with raw stats for this season
-    const players = await prisma.playerDailyStats.findMany({
+    // The normalized daily stats table stores season-cumulative snapshots,
+    // which cannot be summed into 7/14/30-day windows without inflating counts.
+    // Use the per-game source of truth instead.
+    const players = await prisma.playerGameLog.groupBy({
+      by: ['playerMlbamId'],
       where: { season },
-      select: {
-        playerId: true,
-        playerMlbamId: true,
-      },
-      distinct: ['playerMlbamId'],
     });
 
     console.log(`[DERIVED] Found ${players.length} unique players`);
@@ -58,78 +56,26 @@ export async function computeAllDerivedFeatures(
         success: false,
         traceId,
         playersComputed: 0,
-        errors: ['No players found with raw stats'],
+        errors: ['No players found with game logs'],
         durationMs: Date.now() - startTime,
       };
     }
 
-    let playersComputed = 0;
-
-    // Compute features for each player
-    for (const player of players) {
-      try {
-        // Get all raw stats for this player
-        const rawStats = await prisma.playerDailyStats.findMany({
-          where: {
-            playerMlbamId: player.playerMlbamId,
-            season,
-          },
-          orderBy: { statDate: 'desc' },
-        });
-
-        if (rawStats.length === 0) continue;
-
-        // Compute derived features
-        const features = computeDerivedFeatures(
-          player.playerId,
-          player.playerMlbamId,
-          season,
-          rawStats.map((s: { statDate: Date; gamesPlayed: number; atBats: number; hits: number; doubles: number; triples: number; homeRuns: number; walks: number; strikeouts: number; battingAvg: string | null; onBasePct: string | null; sluggingPct: string | null }) => ({
-            statDate: s.statDate,
-            gamesPlayed: s.gamesPlayed,
-            atBats: s.atBats,
-            plateAppearances: undefined, // Not stored separately
-            hits: s.hits,
-            doubles: s.doubles,
-            triples: s.triples,
-            homeRuns: s.homeRuns,
-            walks: s.walks,
-            strikeouts: s.strikeouts,
-            battingAvg: s.battingAvg || undefined,
-            onBasePct: s.onBasePct || undefined,
-            sluggingPct: s.sluggingPct || undefined,
-          }))
-        );
-
-        // Store features (unless dry run)
-        if (!dryRun) {
-          await storeDerivedFeatures({ features, traceId });
-        }
-
-        playersComputed++;
-
-        // Log progress every 100 players
-        if (playersComputed % 100 === 0) {
-          console.log(`[DERIVED] Computed ${playersComputed}/${players.length} players`);
-        }
-      } catch (error) {
-        const errorMsg = `Failed to compute features for ${player.playerMlbamId}: ${error instanceof Error ? error.message : String(error)}`;
-        console.error(`[DERIVED] ${errorMsg}`);
-        errors.push(errorMsg);
-      }
-    }
+    const result = dryRun
+      ? await simulateDerivedStatsFromGameLogs(season)
+      : await batchComputeDerivedStatsFromGameLogs(season, undefined, traceId);
 
     const durationMs = Date.now() - startTime;
 
-    console.log(`[DERIVED] Complete: ${playersComputed} players in ${durationMs}ms`, {
-      errors: errors.length,
+    console.log(`[DERIVED] Complete: ${result.processed} players in ${durationMs}ms`, {
+      errors: result.errors.length,
     });
 
     return {
-      success: errors.length === 0,
+      success: result.errors.length === 0,
       traceId,
-      playersComputed,
-      errors,
+      playersComputed: result.processed,
+      errors: result.errors,
       durationMs,
     };
   } catch (error) {
@@ -156,44 +102,110 @@ export async function computePlayerDerivedFeatures(
   season: number
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const player = await prisma.playerDailyStats.findFirst({
+    const latestGameLog = await prisma.playerGameLog.findFirst({
       where: { playerMlbamId, season },
+      orderBy: { gameDate: 'desc' },
       select: { playerId: true },
     });
 
-    if (!player) {
+    if (!latestGameLog) {
       return { success: false, error: 'Player not found' };
     }
 
-    const rawStats = await prisma.playerDailyStats.findMany({
-      where: { playerMlbamId, season },
-      orderBy: { statDate: 'desc' },
-    });
-
-    const features = computeDerivedFeatures(
-      player.playerId,
+    const result = await computeDerivedStatsFromGameLogs(
+      latestGameLog.playerId,
       playerMlbamId,
-      season,
-      rawStats.map((s: { statDate: Date; gamesPlayed: number; atBats: number; hits: number; doubles: number; triples: number; homeRuns: number; walks: number; strikeouts: number; battingAvg: string | null; onBasePct: string | null; sluggingPct: string | null }) => ({
-        statDate: s.statDate,
-        gamesPlayed: s.gamesPlayed,
-        atBats: s.atBats,
-        plateAppearances: undefined,
-        hits: s.hits,
-        doubles: s.doubles,
-        triples: s.triples,
-        homeRuns: s.homeRuns,
-        walks: s.walks,
-        strikeouts: s.strikeouts,
-        battingAvg: s.battingAvg || undefined,
-        onBasePct: s.onBasePct || undefined,
-        sluggingPct: s.sluggingPct || undefined,
-      }))
+      season
     );
 
-    await storeDerivedFeatures({
-      features,
-      traceId: uuidv4(),
+    if (!result) {
+      return { success: false, error: 'No recent game logs found for player' };
+    }
+
+    const computedDate = new Date();
+    computedDate.setHours(0, 0, 0, 0);
+
+    await prisma.playerDerivedStats.upsert({
+      where: {
+        playerMlbamId_season_computedDate: {
+          playerMlbamId,
+          season,
+          computedDate,
+        },
+      },
+      create: {
+        playerId: latestGameLog.playerId,
+        playerMlbamId,
+        season,
+        computedDate,
+        gamesLast7: result.gamesLast7,
+        gamesLast14: result.gamesLast14,
+        gamesLast30: result.gamesLast30,
+        plateAppearancesLast7: Math.round(result.plateAppearancesLast7),
+        plateAppearancesLast14: Math.round(result.plateAppearancesLast14),
+        plateAppearancesLast30: Math.round(result.plateAppearancesLast30),
+        atBatsLast30: Math.round(result.atBatsLast30),
+        battingAverageLast30: result.battingAverageLast30,
+        onBasePctLast30: result.onBasePctLast30,
+        sluggingPctLast30: result.sluggingPctLast30,
+        opsLast30: result.opsLast30,
+        isoLast30: result.isoLast30,
+        walkRateLast30: result.walkRateLast30,
+        strikeoutRateLast30: result.strikeoutRateLast30,
+        babipLast30: result.babipLast30,
+        battingAverageReliable: result.battingAverageReliable,
+        obpReliable: result.obpReliable,
+        slgReliable: result.slgReliable,
+        opsReliable: result.opsReliable,
+        gamesToReliable: result.gamesToReliable,
+        hitConsistencyScore: result.hitConsistencyScore,
+        productionVolatility: result.productionVolatility,
+        zeroHitGamesLast14: result.zeroHitGamesLast14,
+        multiHitGamesLast14: result.multiHitGamesLast14,
+        gamesStartedLast14: result.gamesStartedLast14,
+        lineupSpot: result.lineupSpot,
+        platoonRisk: result.platoonRisk,
+        playingTimeTrend: result.playingTimeTrend,
+        positionEligibility: result.positionEligibility,
+        waiverWireValue: result.waiverWireValue,
+        rosteredPercent: result.rosteredPercent,
+        traceId: uuidv4(),
+      },
+      update: {
+        computedAt: new Date(),
+        gamesLast7: result.gamesLast7,
+        gamesLast14: result.gamesLast14,
+        gamesLast30: result.gamesLast30,
+        plateAppearancesLast7: Math.round(result.plateAppearancesLast7),
+        plateAppearancesLast14: Math.round(result.plateAppearancesLast14),
+        plateAppearancesLast30: Math.round(result.plateAppearancesLast30),
+        atBatsLast30: Math.round(result.atBatsLast30),
+        battingAverageLast30: result.battingAverageLast30,
+        onBasePctLast30: result.onBasePctLast30,
+        sluggingPctLast30: result.sluggingPctLast30,
+        opsLast30: result.opsLast30,
+        isoLast30: result.isoLast30,
+        walkRateLast30: result.walkRateLast30,
+        strikeoutRateLast30: result.strikeoutRateLast30,
+        babipLast30: result.babipLast30,
+        battingAverageReliable: result.battingAverageReliable,
+        obpReliable: result.obpReliable,
+        slgReliable: result.slgReliable,
+        opsReliable: result.opsReliable,
+        gamesToReliable: result.gamesToReliable,
+        hitConsistencyScore: result.hitConsistencyScore,
+        productionVolatility: result.productionVolatility,
+        zeroHitGamesLast14: result.zeroHitGamesLast14,
+        multiHitGamesLast14: result.multiHitGamesLast14,
+        gamesStartedLast14: result.gamesStartedLast14,
+        lineupSpot: result.lineupSpot,
+        platoonRisk: result.platoonRisk,
+        playingTimeTrend: result.playingTimeTrend,
+        positionEligibility: result.positionEligibility,
+        waiverWireValue: result.waiverWireValue,
+        rosteredPercent: result.rosteredPercent,
+        traceId: uuidv4(),
+      },
     });
 
     return { success: true };
@@ -203,4 +215,36 @@ export async function computePlayerDerivedFeatures(
       error: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+async function simulateDerivedStatsFromGameLogs(
+  season: number
+): Promise<{ processed: number; errors: string[] }> {
+  const players = await prisma.playerGameLog.groupBy({
+    by: ['playerId', 'playerMlbamId'],
+    where: { season },
+  });
+
+  const errors: string[] = [];
+  let processed = 0;
+
+  for (const { playerId, playerMlbamId } of players) {
+    try {
+      const result = await computeDerivedStatsFromGameLogs(
+        playerId,
+        playerMlbamId,
+        season
+      );
+
+      if (result) {
+        processed++;
+      }
+    } catch (error) {
+      errors.push(
+        `Player ${playerMlbamId}: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  return { processed, errors };
 }

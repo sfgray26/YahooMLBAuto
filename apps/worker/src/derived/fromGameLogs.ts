@@ -95,13 +95,13 @@ interface ComputedDerivedStats {
   atBatsLast30: number;
 
   // Rates
-  battingAverageLast30: number;
-  onBasePctLast30: number;
-  sluggingPctLast30: number;
-  opsLast30: number;
-  isoLast30: number;
-  walkRateLast30: number;
-  strikeoutRateLast30: number;
+  battingAverageLast30: number | null;
+  onBasePctLast30: number | null;
+  sluggingPctLast30: number | null;
+  opsLast30: number | null;
+  isoLast30: number | null;
+  walkRateLast30: number | null;
+  strikeoutRateLast30: number | null;
   babipLast30: number | null;
 
   // Reliability
@@ -156,7 +156,7 @@ async function computeRollingStats(
 
   return games.reduce<RollingStats>(
     (acc, game) => ({
-      games: acc.games + (game.gamesPlayed || 1),
+      games: acc.games + 1,
       plateAppearances: acc.plateAppearances + game.plateAppearances,
       atBats: acc.atBats + game.atBats,
       hits: acc.hits + game.hits,
@@ -530,17 +530,26 @@ export async function computeDerivedStatsFromGameLogs(
     referenceDate
   );
 
-  // Calculate rates from 30-day window
+  // Calculate rates from 30-day window.
+  // Return null when the underlying sample is too small so callers can
+  // distinguish "insufficient data" from a true zero-shaped result.
   const pa = stats30.plateAppearances;
   const ab = stats30.atBats;
 
-  const battingAverageLast30 = ab > 0 ? stats30.hits / ab : 0;
-  const onBasePctLast30 = pa > 0 ? (stats30.hits + stats30.walks + stats30.hitByPitch) / pa : 0;
-  const sluggingPctLast30 = ab > 0 ? stats30.totalBases / ab : 0;
-  const opsLast30 = onBasePctLast30 + sluggingPctLast30;
-  const isoLast30 = battingAverageLast30 > 0 ? sluggingPctLast30 - battingAverageLast30 : 0;
-  const walkRateLast30 = pa > 0 ? stats30.walks / pa : 0;
-  const strikeoutRateLast30 = pa > 0 ? stats30.strikeouts / pa : 0;
+  const battingAverageLast30 = ab >= 10 ? stats30.hits / ab : null;
+  const onBasePctLast30 =
+    pa >= 10 ? (stats30.hits + stats30.walks + stats30.hitByPitch) / pa : null;
+  const sluggingPctLast30 = ab >= 10 ? stats30.totalBases / ab : null;
+  const opsLast30 =
+    onBasePctLast30 !== null && sluggingPctLast30 !== null
+      ? onBasePctLast30 + sluggingPctLast30
+      : null;
+  const isoLast30 =
+    battingAverageLast30 !== null && sluggingPctLast30 !== null
+      ? sluggingPctLast30 - battingAverageLast30
+      : null;
+  const walkRateLast30 = pa >= 10 ? stats30.walks / pa : null;
+  const strikeoutRateLast30 = pa >= 10 ? stats30.strikeouts / pa : null;
 
   // BABIP = (H - HR) / (AB - K - HR + SF)
   // Balls in play that were hits / Total balls in play
@@ -555,13 +564,13 @@ export async function computeDerivedStatsFromGameLogs(
   }
 
   // Reliability flags (standard stabilization thresholds)
-  const battingAverageReliable = stats30.games >= 50 || stats30.atBats >= 200;
-  const obpReliable = stats30.games >= 50 || stats30.plateAppearances >= 250;
-  const slgReliable = stats30.games >= 50 || stats30.atBats >= 200;
+  const battingAverageReliable = pa >= 100;
+  const obpReliable = pa >= 150;
+  const slgReliable = pa >= 200;
   const opsReliable = obpReliable && slgReliable;
 
-  // Games needed to reach reliable sample (assuming 4 PA/game)
-  const gamesToReliable = Math.max(0, Math.ceil((250 - stats30.plateAppearances) / 4));
+  // Games needed to reach reliable sample (assuming ~4 PA/game).
+  const gamesToReliable = Math.max(0, Math.ceil((200 - pa) / 4));
 
   return {
     gamesLast7: stats7.games,

@@ -12,8 +12,9 @@
 import 'dotenv/config';
 
 import { v4 as uuidv4 } from 'uuid';
-import { prisma } from '@cbb/infrastructure';
+import { prisma } from '../lib/prisma.js';
 import type { UATTestResult, UATReport } from './types.js';
+import { assertValidationEnvironment } from '../lib/validation-preflight.js';
 
 // Import all validators
 import {
@@ -294,6 +295,20 @@ async function main() {
   }
 
   try {
+    const environment = await assertValidationEnvironment({
+      requiredTables: [
+        'player_game_logs',
+        'player_daily_stats',
+        'player_derived_stats',
+        'raw_ingestion_logs',
+        'verified_players',
+      ],
+    });
+
+    if (!options.json) {
+      console.log(`   Database: ${environment.databaseName} @ ${environment.databaseHost}\n`);
+    }
+
     const results = await runAllTests(options);
     const report = generateReport(results, options.season);
 

@@ -6,7 +6,7 @@
  */
 
 import 'dotenv/config';
-import { prisma } from '@cbb/infrastructure';
+import { prisma } from '../../lib/prisma.js';
 import type { UATTestResult, ReconciliationConfig } from '../types.js';
 
 interface ReconciliationError {

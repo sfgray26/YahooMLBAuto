@@ -4,13 +4,25 @@
  */
 
 import 'dotenv/config';
-import { prisma } from '@cbb/infrastructure';
+import { prisma } from '../lib/prisma.js';
+import { assertValidationEnvironment } from '../lib/validation-preflight.js';
 
 const season = parseInt(process.argv[2] || '2025');
 
 async function runSimpleUAT() {
+  const environment = await assertValidationEnvironment({
+    requiredTables: [
+      'player_game_logs',
+      'player_daily_stats',
+      'player_derived_stats',
+      'raw_ingestion_logs',
+      'verified_players',
+    ],
+  });
+
   console.log('\n🏗️  Simple Phase 1 UAT - Foundation Integrity\n');
   console.log(`MLB Season: ${season}`);
+  console.log(`Database: ${environment.databaseName} @ ${environment.databaseHost}`);
   console.log(`Started at: ${new Date().toISOString()}\n`);
 
   const results = {

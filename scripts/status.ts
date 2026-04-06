@@ -3,11 +3,17 @@
  * Quick DB Status Check
  */
 
-import { PrismaClient } from '@prisma/client';
-const prisma = new PrismaClient();
+import 'dotenv/config';
+import { prisma } from './lib/prisma.js';
+import { assertValidationEnvironment } from './lib/validation-preflight.js';
 
 async function main() {
+  const environment = await assertValidationEnvironment({
+    requiredTables: ['player_daily_stats', 'player_derived_stats', 'raw_ingestion_logs', 'persisted_decisions'],
+  });
+
   console.log('📊 Database Status\n');
+  console.log(`Database: ${environment.databaseName} @ ${environment.databaseHost}\n`);
 
   const [
     playerDailyStats,
