@@ -645,4 +645,6 @@ export interface DomainAwareAssemblyInput {
   teamState: TeamState;
   hitterScores: Map<string, PlayerScore>;
   pitcherScores: Map<string, PitcherScore>;
+  manualLocks?: Set<UUID>;
+  excludedPlayerIds?: Set<UUID>;
 }

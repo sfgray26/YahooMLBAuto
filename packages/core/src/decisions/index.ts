@@ -245,7 +245,7 @@ export type FactorType =
   | 'opponent_quality';
 
 export interface ValuationMethodology {
-  readonly modelType: 'monte_carlo' | 'ensemble' | 'regression' | 'hybrid';
+  readonly modelType: 'monte_carlo' | 'ensemble' | 'regression' | 'hybrid' | 'mock';
   readonly simulationCount?: number;
   readonly featuresUsed: string[];
   readonly modelVersion: string;

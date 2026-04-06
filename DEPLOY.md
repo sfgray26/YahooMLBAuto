@@ -43,10 +43,12 @@ Or via web:
 
 ### 4. Configure Services
 
-Railway will detect `railway.toml` and create 3 services automatically:
+Railway will detect `railway.toml` and create 5 services automatically:
 - `api` - HTTP API (public)
 - `worker` - Background job processor
 - `scheduler` - Cron job runner (every 15 min)
+- `scheduler-daily-ingest` - Twice-daily game log + derived stat refresh
+- `db-migrate` - One-off migration job for deploys
 
 ### 5. Set Environment Variables
 
@@ -64,6 +66,7 @@ Optional variables:
 ```bash
 railway variables set LOG_LEVEL=info
 railway variables set WORKER_CONCURRENCY=5
+railway variables set ALLOW_MOCK_VALUATIONS=false
 ```
 
 ### 6. Deploy
@@ -128,7 +131,22 @@ curl -X POST https://your-app.railway.app/lineup/today \
     "leagueId": "test-league",
     "platform": "yahoo",
     "format": "h2h",
-    "riskTolerance": "balanced"
+    "riskTolerance": "balanced",
+    "availablePlayers": {
+      "players": [
+        {
+          "player": {
+            "id": "player-1",
+            "mlbamId": "660271",
+            "name": "Mookie Betts",
+            "team": "LAD",
+            "position": ["OF"]
+          },
+          "isAvailable": true,
+          "currentRosterStatus": "starting"
+        }
+      ]
+    }
   }'
 ```
 

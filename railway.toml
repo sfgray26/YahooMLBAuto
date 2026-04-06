@@ -27,6 +27,7 @@ NODE_ENV = "production"
 PORT = "3000"
 LOG_LEVEL = "info"
 SERVICE_NAME = "api"
+ALLOW_MOCK_VALUATIONS = "false"
 
 # ============================================================================
 # Worker Service - Background job processor
@@ -52,6 +53,7 @@ NODE_ENV = "production"
 LOG_LEVEL = "info"
 WORKER_CONCURRENCY = "5"
 SERVICE_NAME = "worker"
+ALLOW_MOCK_VALUATIONS = "false"
 
 # ============================================================================
 # Scheduler Service - Cron job runner (placeholder)
@@ -76,54 +78,32 @@ memory = "512Mi"
 NODE_ENV = "production"
 LOG_LEVEL = "info"
 SERVICE_NAME = "scheduler"
+ALLOW_MOCK_VALUATIONS = "false"
 
 # ============================================================================
-# Data Ingestion Scheduler - Daily game log fetch from balldontlie
+# Daily Ingestion Scheduler - Game logs + Derived stats
 # ============================================================================
 [[services]]
-name = "scheduler-balldontlie-ingest"
+name = "scheduler-daily-ingest"
 
 [services.build]
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [services.deploy]
-startCommand = "npx tsx scripts/ingest-balldontlie.ts --verbose"
+startCommand = "node apps/worker/dist/daily-ingest.js"
 
 [services.schedule]
-cron = "0 6 * * *"  # Daily at 6 AM
+cron = "0 6,18 * * *"  # Twice daily at 6 AM and 6 PM
 
 [services.deploy.resources]
-memory = "512Mi"
+memory = "1Gi"
 
 [services.environment]
 NODE_ENV = "production"
 LOG_LEVEL = "info"
-SERVICE_NAME = "scheduler-balldontlie-ingest"
-
-# ============================================================================
-# Derived Stats Scheduler - Daily 7/14/30 computation
-# ============================================================================
-[[services]]
-name = "scheduler-derived-stats"
-
-[services.build]
-builder = "DOCKERFILE"
-dockerfilePath = "Dockerfile"
-
-[services.deploy]
-startCommand = "npx tsx scripts/compute-derived-stats.ts --verbose"
-
-[services.schedule]
-cron = "0 7 * * *"  # Daily at 7 AM (after ingestion)
-
-[services.deploy.resources]
-memory = "512Mi"
-
-[services.environment]
-NODE_ENV = "production"
-LOG_LEVEL = "info"
-SERVICE_NAME = "scheduler-derived-stats"
+SERVICE_NAME = "scheduler-daily-ingest"
+ALLOW_MOCK_VALUATIONS = "false"
 
 # ============================================================================
 # Migration Job (runs on deploy)

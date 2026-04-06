@@ -8,6 +8,7 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
+import { getMlbWallClock } from '@cbb/core';
 
 import { 
   addDataSync, 
@@ -23,11 +24,15 @@ const logger = {
 
 async function runScheduledTasks() {
   const now = new Date();
-  const hour = now.getHours();
-  const minute = now.getMinutes();
+  const easternClock = getMlbWallClock(now);
+  const hour = easternClock.hour;
+  const minute = easternClock.minute;
+  const today = easternClock.isoDate;
   
   logger.info('Running scheduled tasks', { 
     timestamp: now.toISOString(),
+    timezone: 'America/New_York',
+    easternDate: today,
     hour,
     minute,
   });
@@ -54,13 +59,14 @@ async function runScheduledTasks() {
         take: 1000, // Limit to avoid overwhelming the queue
       });
       
-      if (players.length > 0) {
-        const today = new Date().toISOString().split('T')[0];
+      if (players.length > 0 && process.env.ALLOW_MOCK_VALUATIONS === 'true') {
         await addValuationJob(
           players.map((p: { playerId: string }) => p.playerId),
           { start: today, end: today },
           uuidv4()
         );
+      } else if (players.length > 0) {
+        logger.info('Skipping valuation refresh because mock valuations are disabled');
       }
     }
     

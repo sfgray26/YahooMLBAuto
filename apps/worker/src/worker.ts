@@ -25,6 +25,66 @@ import { handleWaiverRecommendation } from './handlers/waiver.js';
 import { handleDataSync } from './handlers/dataSync.js';
 import { handleValuation } from './handlers/valuation.js';
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function extractConfidenceScore(result: unknown): number | null {
+  if (!isRecord(result)) {
+    return null;
+  }
+
+  const confidenceScore = result.confidenceScore;
+  return typeof confidenceScore === 'number' ? confidenceScore : null;
+}
+
+function toConfidenceLabel(confidenceScore: number | null): string | null {
+  if (confidenceScore === null) {
+    return null;
+  }
+
+  if (confidenceScore >= 0.9) return 'very_high';
+  if (confidenceScore >= 0.75) return 'high';
+  if (confidenceScore >= 0.55) return 'moderate';
+  if (confidenceScore >= 0.35) return 'low';
+  return 'very_low';
+}
+
+function assertDecisionPayload(type: string, payload: unknown): void {
+  if (!isRecord(payload)) {
+    throw new Error(`Invalid ${type} payload: expected an object`);
+  }
+
+  switch (type) {
+    case 'lineup_optimization':
+      {
+        const players = isRecord(payload.availablePlayers) ? payload.availablePlayers.players : null;
+        if (!Array.isArray(players) || players.length === 0) {
+          throw new Error('Invalid lineup_optimization payload: availablePlayers.players must be present');
+        }
+      }
+      return;
+    case 'waiver_recommendation': {
+      const currentRoster = payload.currentRoster;
+      const availablePlayers = isRecord(payload.availablePlayers) ? payload.availablePlayers.players : null;
+      if (!Array.isArray(currentRoster) || currentRoster.length === 0) {
+        throw new Error('Invalid waiver_recommendation payload: currentRoster must be present');
+      }
+      if (!Array.isArray(availablePlayers) || availablePlayers.length === 0) {
+        throw new Error('Invalid waiver_recommendation payload: availablePlayers.players must be present');
+      }
+      return;
+    }
+    case 'player_valuation':
+      if (typeof payload.playerId !== 'string' || !isRecord(payload.scoringPeriod)) {
+        throw new Error('Invalid player_valuation payload: playerId and scoringPeriod are required');
+      }
+      return;
+    default:
+      throw new Error(`Unknown decision type: ${type}`);
+  }
+}
+
 const logger = {
   info: (msg: string, meta?: Record<string, unknown>) => console.log(`[INFO] ${msg}`, meta || ''),
   error: (msg: string, meta?: Record<string, unknown>) => console.error(`[ERROR] ${msg}`, meta || ''),
@@ -49,11 +109,12 @@ const decisionWorker = new Worker(
     const startTime = Date.now();
     
     try {
-      // Update request status to processing
-      await prisma.decisionRequest.update({
+      const decisionRequest = await prisma.decisionRequest.update({
         where: { traceId },
         data: { status: 'processing' },
       });
+
+      assertDecisionPayload(type, payload);
       
       let result;
       
@@ -75,20 +136,18 @@ const decisionWorker = new Worker(
           throw new Error(`Unknown decision type: ${type}`);
       }
       
-      // Store result
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const resultPayload = result as any;
-      const confidenceScore = resultPayload.confidenceScore;
+      const confidenceScore = extractConfidenceScore(result);
+      const confidenceLabel = toConfidenceLabel(confidenceScore);
       
       await prisma.decisionResult.create({
         data: {
           id: uuidv4(),
-          requestId: payload.id,
+          requestId: decisionRequest.id,
           type: `${type}_result`,
-          payload: resultPayload,
+          payload: result as unknown as object,
           completedAt: new Date(),
           processingTimeMs: Date.now() - startTime,
-          confidence: confidenceScore || 'high',
+          confidence: confidenceLabel,
         },
       });
       
@@ -99,12 +158,12 @@ const decisionWorker = new Worker(
       });
       
       // Trigger alert for high-confidence decisions
-      if (confidenceScore >= 0.85) {
+      if (confidenceScore !== null && confidenceScore >= 0.85) {
         await addAlert(
           'high_confidence_decision',
           `High confidence ${type} completed`,
-          { requestId: payload.id, confidence: confidenceScore },
-          payload.id
+          { requestId: decisionRequest.id, confidence: confidenceScore },
+          decisionRequest.id
         );
       }
       

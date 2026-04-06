@@ -20,6 +20,12 @@ export async function handleValuation(
   scoringPeriod: { start: string; end: string },
   traceId: string
 ): Promise<PlayerValuationReport[]> {
+  if (process.env.ALLOW_MOCK_VALUATIONS !== 'true') {
+    throw new Error(
+      'Mock valuations are disabled. Set ALLOW_MOCK_VALUATIONS=true for development or implement a real valuation pipeline.'
+    );
+  }
+
   
   const valuations: PlayerValuationReport[] = [];
   
@@ -72,7 +78,7 @@ function generateMockValuation(
   traceId: string
 ): PlayerValuationReport {
   const now = new Date();
-  const validUntil = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 24 hours
+  const validUntil = new Date(now.getTime() + 6 * 60 * 60 * 1000);
   
   const pointProjection: Distribution = {
     mean: Math.random() * 15 + 5,
@@ -152,20 +158,20 @@ function generateMockValuation(
     floorProjection: pointProjection.mean - pointProjection.standardDeviation,
     ceilingProjection: pointProjection.mean + pointProjection.standardDeviation * 2,
     factors,
-    methodology: {
-      modelType: 'ensemble',
-      simulationCount: 10000,
-      featuresUsed: ['recent_performance', 'matchup_quality', 'ballpark', 'weather'],
-      modelVersion: '1.0.0',
-      trainedAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
-    },
-    dataSources: [
-      {
-        source: 'mlb_stats_api',
-        endpoint: '/stats',
-        fetchedAt: now.toISOString(),
-        cacheKey: `stats_${playerId}`,
-      },
+     methodology: {
+       modelType: 'mock',
+       simulationCount: 10000,
+       featuresUsed: ['mock_random_baseline', 'recent_performance', 'matchup_quality', 'ballpark', 'weather'],
+       modelVersion: 'mock-dev',
+       trainedAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+     },
+     dataSources: [
+       {
+         source: 'mock_generator',
+         endpoint: 'internal://mock-valuation',
+         fetchedAt: now.toISOString(),
+         cacheKey: `stats_${playerId}`,
+       },
     ],
   };
 }

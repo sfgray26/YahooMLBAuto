@@ -82,7 +82,7 @@ await server.register(swaggerUi, {
 // Health Check
 // ============================================================================
 
-server.get('/health', async () => {
+server.get('/health', async (_request, reply) => {
   // Check database connectivity
   try {
     await prisma.$queryRaw`SELECT 1`;
@@ -95,13 +95,13 @@ server.get('/health', async () => {
     };
   } catch (error) {
     server.log.error('Health check failed: %s', error instanceof Error ? error.message : String(error));
-    return { 
+    return reply.status(503).send({
       status: 'error', 
       timestamp: new Date().toISOString(),
       services: {
         database: 'disconnected',
       }
-    };
+    });
   }
 });
 

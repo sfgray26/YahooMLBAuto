@@ -15,6 +15,7 @@
     "dev": "tsx watch src/worker.ts",
     "start": "node dist/worker.js",
     "scheduler": "node dist/scheduler.js",
+    "daily-ingest": "node dist/daily-ingest.js",
     "ingest": "tsx src/ingest.ts",
     "derive": "tsx src/derive.ts",
     "score": "tsx src/score.ts",

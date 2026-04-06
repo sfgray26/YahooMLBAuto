@@ -72,10 +72,5 @@ RUN cd packages/infrastructure && npx prisma@5.22.0 generate
 ENV NODE_ENV=production
 ENV PORT=3000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:3000/health', (r) => r.statusCode === 200 ? process.exit(0) : process.exit(1))"
-
 # Default command (overridden by Railway service config)
-# Run db push first to create tables from schema, then start the server
-CMD ["sh", "-c", "cd packages/infrastructure && npx prisma@5.22.0 db push --accept-data-loss && cd /app && node apps/api/dist/server.js"]
+CMD ["node", "apps/api/dist/server.js"]

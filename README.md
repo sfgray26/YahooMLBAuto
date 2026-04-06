@@ -56,7 +56,22 @@ POST /lineup/today
   "leagueId": "your-league",
   "platform": "yahoo",
   "format": "h2h",
-  "riskTolerance": "balanced"
+  "riskTolerance": "balanced",
+  "availablePlayers": {
+    "players": [
+      {
+        "player": {
+          "id": "player-1",
+          "mlbamId": "660271",
+          "name": "Mookie Betts",
+          "team": "LAD",
+          "position": ["OF"]
+        },
+        "isAvailable": true,
+        "currentRosterStatus": "starting"
+      }
+    ]
+  }
 }
 
 GET /lineup/:id/result
@@ -69,7 +84,34 @@ POST /waiver/recommendations
   "leagueId": "your-league",
   "platform": "yahoo",
   "format": "h2h",
-  "scope": "add_drop"
+  "scope": "add_drop",
+  "currentRoster": [
+    {
+      "player": {
+        "id": "player-1",
+        "mlbamId": "660271",
+        "name": "Mookie Betts",
+        "team": "LAD",
+        "position": ["OF"]
+      },
+      "position": "OF",
+      "isLocked": false
+    }
+  ],
+  "availablePlayers": {
+    "players": [
+      {
+        "player": {
+          "id": "player-2",
+          "mlbamId": "592450",
+          "name": "William Contreras",
+          "team": "MIL",
+          "position": ["C"]
+        },
+        "isAvailable": true
+      }
+    ]
+  }
 }
 
 GET /waiver/:id/result
@@ -112,6 +154,7 @@ REDIS_URL=redis://...
 PORT=3000
 LOG_LEVEL=info
 WORKER_CONCURRENCY=5
+ALLOW_MOCK_VALUATIONS=false
 ```
 
 ## License
