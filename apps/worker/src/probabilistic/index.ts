@@ -24,6 +24,7 @@ export interface SimulationConfig {
   confidenceLevel: number;       // For confidence intervals (default: 0.9)
   regressionToMean: boolean;     // Apply regression toward league average
   regressionStrength: number;    // How strong (0-1, default: 0.3)
+  randomSeed?: number;           // Optional explicit seed for reproducibility
 }
 
 export interface PercentileOutcomes {
@@ -96,6 +97,57 @@ const LEAGUE_DISTRIBUTION = {
   replacementThreshold: 45,
 };
 
+function hashToSeed(value: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+
+  return (hash >>> 0) || 1;
+}
+
+function createRng(seed: number): () => number {
+  let state = seed >>> 0;
+
+  return () => {
+    state = (state + 0x6D2B79F5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function resolveSimulationSeed(
+  currentScore: PlayerScore | PitcherScore,
+  cfg: SimulationConfig
+): number {
+  if (typeof cfg.randomSeed === 'number') {
+    return cfg.randomSeed;
+  }
+
+  return hashToSeed([
+    'playerId' in currentScore ? currentScore.playerId : '',
+    'playerMlbamId' in currentScore ? currentScore.playerMlbamId : '',
+    currentScore.overallValue,
+    currentScore.confidence,
+    cfg.simulations,
+    cfg.weeksRemaining,
+    cfg.gamesPerWeek,
+    cfg.confidenceLevel,
+    cfg.regressionToMean,
+    cfg.regressionStrength,
+  ].join('|'));
+}
+
+function randomNormal(rng: () => number, mean: number, stdDev: number): number {
+  const u1 = Math.max(rng(), Number.EPSILON);
+  const u2 = rng();
+  const z0 = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+  return z0 * stdDev + mean;
+}
+
 // ============================================================================
 // Monte Carlo Simulation
 // ============================================================================
@@ -114,9 +166,11 @@ export function simulatePlayerOutcomes(
   config: Partial<SimulationConfig> = {}
 ): ProbabilisticOutcome {
   const cfg = { ...DEFAULT_CONFIG, ...config };
+  const resolvedSeed = resolveSimulationSeed(currentScore, cfg);
+  const rng = createRng(resolvedSeed);
   
   // Extract current performance level (Z-score)
-  const currentZ = (currentScore.overallValue - 50) / 10;
+  const currentZ = Math.max(-3, Math.min(3, (currentScore.overallValue - 50) / 10));
   const confidence = currentScore.confidence;
   
   // Calculate true talent estimate (regressed toward mean)
@@ -145,13 +199,13 @@ export function simulatePlayerOutcomes(
     // Simulate each week
     for (let week = 0; week < cfg.weeksRemaining; week++) {
       // Injury risk: 5% chance of missing week entirely
-      if (Math.random() < 0.05) continue;
+      if (rng() < 0.05) continue;
       
       // Games this week (with variance)
-      const games = Math.max(0, cfg.gamesPerWeek + randomNormal(0, 1));
+      const games = Math.max(0, cfg.gamesPerWeek + randomNormal(rng, 0, 1));
       
       // Weekly performance (random walk around true talent)
-      const weeklyZ = trueTalentZ + randomNormal(0, weeklyStdDev);
+      const weeklyZ = trueTalentZ + randomNormal(rng, 0, weeklyStdDev);
       
       // Accumulate
       cumulativeZ += weeklyZ * games;
@@ -197,9 +251,7 @@ export function simulatePlayerOutcomes(
     percentile(outcomes, 1 - alpha),
   ];
   
-  // Convergence check (how stable are the results?)
-  // Run a second batch and compare
-  const convergenceScore = checkConvergence(currentScore, cfg);
+  const convergenceScore = calculateConvergenceScore(percentiles.stdDev, confidenceInterval, cfg.simulations);
   
   return {
     rosScore: percentiles,
@@ -221,21 +273,30 @@ export function simulatePlayerOutcomes(
 // ============================================================================
 
 /**
- * Box-Muller transform for normal distribution
- */
-function randomNormal(mean: number, stdDev: number): number {
-  const u1 = Math.random();
-  const u2 = Math.random();
-  const z0 = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-  return z0 * stdDev + mean;
-}
-
-/**
  * Get percentile from sorted array
  */
 function percentile(sortedArray: number[], p: number): number {
-  const index = Math.floor(p * sortedArray.length);
-  return sortedArray[Math.min(index, sortedArray.length - 1)];
+  if (sortedArray.length === 0) {
+    return 0;
+  }
+
+  if (sortedArray.length === 1) {
+    return sortedArray[0];
+  }
+
+  const boundedP = Math.max(0, Math.min(1, p));
+  const index = boundedP * (sortedArray.length - 1);
+  const lowerIndex = Math.floor(index);
+  const upperIndex = Math.ceil(index);
+  const lowerValue = sortedArray[lowerIndex];
+  const upperValue = sortedArray[upperIndex];
+
+  if (lowerIndex === upperIndex) {
+    return lowerValue;
+  }
+
+  const weight = index - lowerIndex;
+  return lowerValue + (upperValue - lowerValue) * weight;
 }
 
 /**
@@ -293,38 +354,19 @@ function calculateRiskProfile(
 }
 
 /**
- * Check convergence by running a smaller second batch
+ * Estimate convergence using CI width and simulation count.
  */
-function checkConvergence(
-  currentScore: PlayerScore | PitcherScore,
-  config: SimulationConfig
+function calculateConvergenceScore(
+  stdDev: number,
+  confidenceInterval: [number, number],
+  simulations: number
 ): number {
-  // Run 200 simulations and compare mean to main batch
-  // In practice, you'd cache results - this is simplified
-  
-  const currentZ = (currentScore.overallValue - 50) / 10;
-  const weeklyStdDev = currentScore.confidence > 0.8 ? 0.3 : 
-                       currentScore.confidence > 0.6 ? 0.5 : 0.8;
-  
-  const outcomes: number[] = [];
-  
-  for (let sim = 0; sim < 200; sim++) {
-    let cumulativeZ = 0;
-    for (let week = 0; week < config.weeksRemaining; week++) {
-      if (Math.random() < 0.05) continue;
-      const games = Math.max(0, config.gamesPerWeek + randomNormal(0, 1));
-      const weeklyZ = currentZ + randomNormal(0, weeklyStdDev);
-      cumulativeZ += weeklyZ * games;
-    }
-    outcomes.push(Math.max(0, Math.min(100, 50 + (cumulativeZ / (config.weeksRemaining * config.gamesPerWeek)) * 10)));
-  }
-  
-  const mean = outcomes.reduce((a, b) => a + b, 0) / outcomes.length;
-  const expectedMean = currentScore.overallValue;
-  
-  // Convergence: how close is simulation mean to input score?
-  const diff = Math.abs(mean - expectedMean);
-  return Math.max(0, 1 - diff / 20); // 1 = perfect convergence, 0 = poor
+  const ciWidth = Math.max(0, confidenceInterval[1] - confidenceInterval[0]);
+  const widthPenalty = Math.min(1, ciWidth / 35);
+  const variancePenalty = Math.min(1, stdDev / 20);
+  const runBonus = Math.min(1, Math.sqrt(simulations / 1000));
+
+  return Math.max(0, Math.min(1, runBonus * (1 - ((widthPenalty * 0.7) + (variancePenalty * 0.3)))));
 }
 
 // ============================================================================

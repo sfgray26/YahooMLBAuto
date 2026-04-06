@@ -93,6 +93,70 @@ function createRNG(seed: number): () => number {
   };
 }
 
+function hashToSeed(value: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+
+  return (hash >>> 0) || 1;
+}
+
+function resolveSimulationSeed(
+  derived: PlayerDerivedStats,
+  score: PlayerScore,
+  config: SimulationConfig
+): number {
+  if (typeof config.randomSeed === 'number') {
+    return config.randomSeed;
+  }
+
+  return hashToSeed([
+    derived.playerMlbamId,
+    derived.playerId,
+    config.horizon,
+    config.runs,
+    score.overallValue,
+    score.confidence,
+  ].join('|'));
+}
+
+function percentile(sortedArray: number[], p: number): number {
+  if (sortedArray.length === 0) {
+    return 0;
+  }
+
+  if (sortedArray.length === 1) {
+    return sortedArray[0];
+  }
+
+  const boundedP = Math.max(0, Math.min(1, p));
+  const index = boundedP * (sortedArray.length - 1);
+  const lowerIndex = Math.floor(index);
+  const upperIndex = Math.ceil(index);
+  const lowerValue = sortedArray[lowerIndex];
+  const upperValue = sortedArray[upperIndex];
+
+  if (lowerIndex === upperIndex) {
+    return lowerValue;
+  }
+
+  const weight = index - lowerIndex;
+  return lowerValue + (upperValue - lowerValue) * weight;
+}
+
+function randomNormal(rng: () => number, mean: number, stdDev: number): number {
+  const u1 = Math.max(rng(), Number.EPSILON);
+  const u2 = rng();
+  const z0 = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+  return z0 * stdDev + mean;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
 /**
  * Simulate a single daily outcome using Poisson for counting stats,
  * Beta distribution for rate-based contributions.
@@ -104,51 +168,46 @@ function simulateDailyOutcome(
   score: PlayerScore,
   rng: () => number
 ): number {
-  // Extract key rates from derived features
   const rates = derived.rates as Record<string, number>;
   const volume = derived.volume as Record<string, number>;
-  const ops = rates.opsLast30 ?? 0.700;
-  const plateAppearances = volume.plateAppearancesLast7 ?? 4;
-
-  // Base fantasy contribution scaled to roughly match PlayerScore (0-100)
-  // OPS ~ 1.000 = elite (~25 pts/day), ~ 0.700 = replacement (~15 pts/day)
-  const opsComponent = (ops - 0.500) * 25; // 0.500 OPS = 0 pts, 1.000 OPS = 12.5 pts
-  const paComponent = plateAppearances * 0.5; // 4 PA = 2 pts, 6 PA = 3 pts
-  const baseContribution = opsComponent + paComponent;
-
-  // Poisson simulation for counting stats variance (hits, runs, etc.)
-  // Lambda derived from expected hits+walks based on OBP
+  const ops = rates.opsLast30 ?? 0.720;
   const obp = rates.onBasePctLast30 ?? 0.320;
-  const lambda = Math.max(0.5, plateAppearances * obp * 0.5); // Expected times on base
-  let poissonOutcome = 0;
-  let p = 1.0;
-  const L = Math.exp(-lambda);
-  while (p > L) {
-    poissonOutcome++;
-    p *= rng();
-  }
-  poissonOutcome--; // Adjust for algorithm
-
-  // Binomial for HR probability (power component)
   const iso = rates.isoLast30 ?? 0.150;
-  const hrRate = Math.min(0.08, iso * 0.15); // ISO ~0.200 = 3% HR rate per PA
-  let hrs = 0;
-  for (let i = 0; i < plateAppearances; i++) {
-    if (rng() < hrRate) hrs++;
+  const strikeoutRate = rates.strikeoutRateLast30 ?? 0.220;
+  const gamesLast7 = Math.max(1, volume.gamesLast7 ?? 5);
+  const plateAppearances = volume.plateAppearancesLast7 ?? volume.plateAppearancesLast30 ?? 28;
+  const paPerGame = plateAppearances / gamesLast7;
+
+  const opportunityFactor = clamp(paPerGame / 4.2, 0.75, 1.15);
+  const opportunityAdjustment = (opportunityFactor - 1) * 15;
+  const skillAdjustment =
+    ((ops - 0.720) / 0.180) * 3 +
+    ((iso - 0.160) / 0.080) * 2 +
+    ((obp - 0.320) / 0.060) * 1.5;
+
+  const baseline = clamp(score.overallValue + opportunityAdjustment + skillAdjustment, 0, 100);
+
+  const volatility = (derived.volatility as { productionVolatility?: number })?.productionVolatility ?? 1.0;
+  const consistency = (derived.volatility as { hitConsistencyScore?: number })?.hitConsistencyScore ?? 50;
+  const downsidePenalty = Math.max(0, strikeoutRate - 0.24) * 15;
+  const standardDeviation = Math.max(
+    4,
+    5 + volatility * 6 + Math.max(0, 60 - consistency) / 8 + downsidePenalty
+  );
+
+  let outcome = baseline + randomNormal(rng, 0, standardDeviation);
+
+  const ceilingEventProbability = clamp(Math.max(0, iso - 0.14) * 1.5 + Math.max(0, volatility - 1) * 0.15, 0, 0.18);
+  if (rng() < ceilingEventProbability) {
+    outcome += 8 + rng() * 8;
   }
 
-  // Combine components with volatility
-  const volatility = (derived.volatility as { productionVolatility?: number })?.productionVolatility ?? 1.0;
-  const varianceFactor = 1.0 + (rng() - 0.5) * 0.4 * volatility; // ±20% variance scaled by volatility
+  const downsideEventProbability = clamp(Math.max(0, 0.30 - obp) * 1.2 + Math.max(0, 55 - consistency) / 200, 0, 0.2);
+  if (rng() < downsideEventProbability) {
+    outcome -= 8 + rng() * 10;
+  }
 
-  const outcome = (baseContribution * varianceFactor) +
-                  (poissonOutcome * 1.5) +  // Getting on base
-                  (hrs * 4);                 // Home runs
-
-  // Normalize to 0-100 scale (consistent with PlayerScore)
-  // Daily scores typically range 0-40 for hitters
-  const normalized = outcome * 2.5; // Scale up to 0-100 range
-  return Math.max(0, Math.min(100, normalized));
+  return clamp(outcome, 0, 100);
 }
 
 /**
@@ -191,7 +250,8 @@ export function simulatePlayerOutcome(
   score: PlayerScore,
   config: SimulationConfig = { runs: 10_000, horizon: 'daily' }
 ): PlayerOutcomeDistribution {
-  const rng = createRNG(config.randomSeed ?? 12345);
+  const resolvedSeed = resolveSimulationSeed(derived, score, config);
+  const rng = createRNG(resolvedSeed);
   const outcomes: number[] = [];
 
   // Run simulations
@@ -212,11 +272,11 @@ export function simulatePlayerOutcome(
   const variance = outcomes.reduce((acc, val) => acc + Math.pow(val - expectedValue, 2), 0) / outcomes.length;
   const standardDeviation = Math.sqrt(variance);
 
-  const p10 = outcomes[Math.floor(outcomes.length * 0.10)];
-  const p25 = outcomes[Math.floor(outcomes.length * 0.25)];
-  const p50 = outcomes[Math.floor(outcomes.length * 0.50)];
-  const p75 = outcomes[Math.floor(outcomes.length * 0.75)];
-  const p90 = outcomes[Math.floor(outcomes.length * 0.90)];
+  const p10 = percentile(outcomes, 0.10);
+  const p25 = percentile(outcomes, 0.25);
+  const p50 = percentile(outcomes, 0.50);
+  const p75 = percentile(outcomes, 0.75);
+  const p90 = percentile(outcomes, 0.90);
 
   const median = p50;
 
@@ -256,11 +316,11 @@ export function simulatePlayerOutcome(
   let confidenceImpact: 'increase' | 'decrease' | 'neutral' = 'neutral';
   let confidenceDelta = 0;
 
-  if (ceilingFloorSpread > standardDeviation * 2.5 && floorQuality < 0.5) {
-    // High variance, low floor = risky
+  if (standardDeviation >= 12 || ceilingFloorSpread >= 30 || floorQuality < 0.55) {
+    // High variance or weak floor = risky
     confidenceImpact = 'decrease';
     confidenceDelta = -0.1;
-  } else if (floorQuality > 0.7 && ceilingQuality > 1.1) {
+  } else if (standardDeviation <= 9 && floorQuality > 0.72 && ceilingQuality > 1.05) {
     // High floor, good ceiling = reliable with upside
     confidenceImpact = 'increase';
     confidenceDelta = 0.05;
@@ -269,6 +329,7 @@ export function simulatePlayerOutcome(
   // Build notes for explainability
   const notes: string[] = [];
   notes.push(`Simulated ${config.runs.toLocaleString()} ${config.horizon} outcomes`);
+  notes.push(`Seed: ${resolvedSeed}`);
   notes.push(`Expected value: ${expectedValue.toFixed(1)}, StdDev: ${standardDeviation.toFixed(1)}`);
   notes.push(`Floor (p10): ${p10.toFixed(1)}, Ceiling (p90): ${p90.toFixed(1)}`);
   notes.push(`Spread ${ceilingFloorSpread.toFixed(1)} indicates ${ceilingFloorSpread > 30 ? 'high' : 'moderate'} volatility`);
@@ -311,12 +372,13 @@ export function simulatePlayerOutcomes(
   config: Omit<SimulationConfig, 'randomSeed'> & { randomSeed?: number }
 ): Map<string, PlayerOutcomeDistribution> {
   const results = new Map<string, PlayerOutcomeDistribution>();
-  let seed = config.randomSeed ?? 12345;
 
-  for (const { derived, score } of inputs) {
+  for (const [index, { derived, score }] of inputs.entries()) {
     const result = simulatePlayerOutcome(derived, score, {
       ...config,
-      randomSeed: seed++,
+      randomSeed: typeof config.randomSeed === 'number'
+        ? hashToSeed(`${config.randomSeed}|${derived.playerMlbamId}|${index}`)
+        : undefined,
     });
     results.set(derived.playerMlbamId, result);
   }
