@@ -260,6 +260,65 @@ model PlayerGameLog {
   @@map("player_game_logs")
 }
 
+model PitcherGameLog {
+  id String @id @default(uuid())
+
+  playerId      String
+  playerMlbamId String
+  season        Int
+
+  // Game info
+  gameDate   DateTime
+  gamePk     String
+  homeTeamId String
+  awayTeamId String
+  isHomeGame Boolean
+
+  // Team context
+  teamId      String
+  teamMlbamId String
+  opponentId  String
+
+  // Pitching stats
+  gamesPlayed      Int   @default(0)
+  gamesStarted     Int   @default(0)
+  gamesFinished    Int   @default(0)
+  gamesSaved       Int   @default(0)
+  holds            Int   @default(0)
+  inningsPitched   Float @default(0)
+  battersFaced     Int   @default(0)
+  hitsAllowed      Int   @default(0)
+  runsAllowed      Int   @default(0)
+  earnedRuns       Int   @default(0)
+  walks            Int   @default(0)
+  strikeouts       Int   @default(0)
+  homeRunsAllowed  Int   @default(0)
+  hitByPitch       Int   @default(0)
+  pitches          Int?
+  strikes          Int?
+  firstPitchStrikes Int?
+  swingingStrikes   Int?
+  groundBalls       Int?
+  flyBalls          Int?
+
+  // Role/context
+  position String?
+
+  // Source
+  rawDataSource String @default("mlb_stats_api")
+
+  // Audit
+  ingestedAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([playerMlbamId, gamePk])
+  @@index([playerId])
+  @@index([playerMlbamId])
+  @@index([gameDate])
+  @@index([season])
+  @@map("pitcher_game_logs")
+}
+
 // ============================================================================
 // Raw Ingestion Log (Step 2: Store raw payloads before normalization)
 // ============================================================================
@@ -419,6 +478,78 @@ model PlayerDerivedStats {
   @@index([season])
   @@index([computedAt])
   @@map("player_derived_stats")
+}
+
+model PitcherDerivedStats {
+  id String @id @default(uuid())
+
+  playerId      String
+  playerMlbamId String
+  season        Int
+
+  // Computation tracking
+  computedAt   DateTime @default(now())
+  computedDate DateTime
+
+  // Volume features
+  appearancesLast7      Int   @default(0)
+  appearancesLast14     Int   @default(0)
+  appearancesLast30     Int   @default(0)
+  inningsPitchedLast7   Float @default(0)
+  inningsPitchedLast14  Float @default(0)
+  inningsPitchedLast30  Float @default(0)
+  battersFacedLast7     Int   @default(0)
+  battersFacedLast14    Int   @default(0)
+  battersFacedLast30    Int   @default(0)
+  gamesSavedLast30      Int   @default(0)
+  gamesStartedLast30    Int   @default(0)
+  pitchesPerInning      Float?
+  daysSinceLastAppearance Int?
+
+  // Rate features
+  eraLast30               Float?
+  whipLast30              Float?
+  fipLast30               Float?
+  xfipLast30              Float?
+  strikeoutRateLast30     Float?
+  walkRateLast30          Float?
+  kToBBRatioLast30        Float?
+  swingingStrikeRate      Float?
+  firstPitchStrikeRate    Float?
+  avgVelocity             Float?
+  gbRatio                 Float?
+  hrPer9                  Float?
+
+  // Stabilization
+  eraReliable    Boolean @default(false)
+  whipReliable   Boolean @default(false)
+  fipReliable    Boolean @default(false)
+  kRateReliable  Boolean @default(false)
+  bbRateReliable Boolean @default(false)
+  battersToReliable Int @default(0)
+
+  // Volatility
+  qualityStartRate Float?
+  blowUpRate       Float?
+  eraVolatility    Float?
+  consistencyScore Int    @default(0)
+
+  // Context
+  opponentOps         Float?
+  parkFactor          Float?
+  isHome              Boolean?
+  isCloser            Boolean?
+  scheduledStartNext7 Boolean @default(false)
+  opponentNextStart   String?
+
+  // Audit
+  traceId String
+
+  @@unique([playerMlbamId, season, computedDate])
+  @@index([playerId])
+  @@index([season])
+  @@index([computedAt])
+  @@map("pitcher_derived_stats")
 }
 
 // ============================================================================

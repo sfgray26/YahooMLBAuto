@@ -7,7 +7,15 @@
 
 import type { FastifyInstance, FastifyPluginOptions } from 'fastify';
 import { runDailyIngestion, validateIngestion } from '@cbb/worker';
-import { ingestGameLogsForPlayers, batchComputeDerivedStatsFromGameLogs } from '@cbb/worker';
+import {
+  ingestGameLogsForPlayers,
+  batchComputeDerivedStatsFromGameLogs,
+  ingestPitcherGameLogsForPlayers,
+  batchComputePitcherDerivedStatsFromGameLogs,
+  getPitcherDerivedFeatures,
+  scoreSinglePitcher,
+  simulatePitcherOutcome,
+} from '@cbb/worker';
 import { validatePlayerIdentity, validatePlayerBatch, suggestCorrectId } from '@cbb/worker';
 import { prisma } from '@cbb/infrastructure';
 import { v4 as uuidv4 } from 'uuid';
@@ -133,11 +141,15 @@ export async function adminRoutes(
         playerDailyStatsCount,
         rawIngestionLogCount,
         playerDerivedStatsCount,
+        pitcherGameLogCount,
+        pitcherDerivedStatsCount,
         persistedDecisionCount,
       ] = await Promise.all([
         prisma.playerDailyStats.count({ where: { season: targetSeason } }),
         prisma.rawIngestionLog.count({ where: { season: targetSeason } }),
         prisma.playerDerivedStats.count({ where: { season: targetSeason } }),
+        prisma.pitcherGameLog.count({ where: { season: targetSeason } }),
+        prisma.pitcherDerivedStats.count({ where: { season: targetSeason } }),
         prisma.persistedDecision.count(),
       ]);
       
@@ -164,6 +176,8 @@ export async function adminRoutes(
           playerDailyStats: playerDailyStatsCount,
           rawIngestionLogs: rawIngestionLogCount,
           playerDerivedStats: playerDerivedStatsCount,
+          pitcherGameLogs: pitcherGameLogCount,
+          pitcherDerivedStats: pitcherDerivedStatsCount,
           persistedDecisions: persistedDecisionCount,
         },
         latestIngestion: latestIngestion ? {
@@ -488,6 +502,94 @@ export async function adminRoutes(
   });
 
   // ==========================================================================
+  // POST /admin/ingest-pitcher-game-logs
+  // Ingest pitcher game-by-game stats for specific players
+  // ==========================================================================
+  fastify.post('/ingest-pitcher-game-logs', async (request, reply) => {
+    const { playerIds, season } = request.body as {
+      playerIds?: string[];
+      season?: number;
+    };
+
+    const targetSeason = season || new Date().getFullYear();
+    const traceId = uuidv4();
+
+    console.log(`[ADMIN] Ingesting pitcher game logs for season ${targetSeason}...`);
+
+    if (!playerIds || playerIds.length === 0) {
+      return reply.status(400).send({
+        success: false,
+        error: 'playerIds required',
+        message: 'Provide array of pitcher MLBAM IDs to ingest game logs for',
+      });
+    }
+
+    try {
+      const players = playerIds.map((mlbamId) => ({
+        playerId: `mlbam:${mlbamId}`,
+        mlbamId,
+      }));
+
+      const startTime = Date.now();
+      const result = await ingestPitcherGameLogsForPlayers(players, targetSeason);
+      const durationMs = Date.now() - startTime;
+
+      return {
+        success: true,
+        message: `Ingested pitcher game logs for ${result.totalPlayers} players`,
+        season: targetSeason,
+        durationMs,
+        totalGames: result.totalGames,
+        errors: result.errors.length > 0 ? result.errors : undefined,
+        traceId,
+      };
+    } catch (error) {
+      console.error('[ADMIN] Pitcher game log ingestion error:', error);
+      return reply.status(500).send({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        traceId,
+      });
+    }
+  });
+
+  // ==========================================================================
+  // POST /admin/compute-pitcher-derived-from-logs
+  // Compute pitcher-derived stats from stored game logs
+  // ==========================================================================
+  fastify.post('/compute-pitcher-derived-from-logs', async (request, reply) => {
+    const { season } = request.body as { season?: number };
+
+    const targetSeason = season || new Date().getFullYear();
+    const traceId = uuidv4();
+
+    console.log(`[ADMIN] Computing pitcher derived stats from game logs for season ${targetSeason}...`);
+
+    try {
+      const startTime = Date.now();
+      const result = await batchComputePitcherDerivedStatsFromGameLogs(targetSeason, undefined, traceId);
+      const durationMs = Date.now() - startTime;
+
+      return {
+        success: true,
+        message: `Computed pitcher derived stats for ${result.processed} players`,
+        season: targetSeason,
+        durationMs,
+        processed: result.processed,
+        errors: result.errors.length > 0 ? result.errors : undefined,
+        traceId,
+      };
+    } catch (error) {
+      console.error('[ADMIN] Pitcher derived stats computation error:', error);
+      return reply.status(500).send({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        traceId,
+      });
+    }
+  });
+
+  // ==========================================================================
   // GET /admin/game-logs/:mlbamId - Get raw game logs for validation
   // ==========================================================================
   fastify.get('/game-logs/:mlbamId', async (request, reply) => {
@@ -567,6 +669,93 @@ export async function adminRoutes(
       };
     } catch (error) {
       console.error('[ADMIN] Game logs fetch error:', error);
+      return reply.status(500).send({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  // ==========================================================================
+  // GET /admin/pitcher-game-logs/:mlbamId - Get raw pitcher game logs for validation
+  // ==========================================================================
+  fastify.get('/pitcher-game-logs/:mlbamId', async (request, reply) => {
+    const { mlbamId } = request.params as { mlbamId: string };
+    const { season } = request.query as { season?: string };
+    const targetSeason = season ? parseInt(season) : new Date().getFullYear();
+
+    console.log(`[ADMIN] Fetching pitcher game logs for ${mlbamId}, season ${targetSeason}`);
+
+    try {
+      const gameLogs = await prisma.pitcherGameLog.findMany({
+        where: {
+          playerMlbamId: mlbamId,
+          season: targetSeason,
+        },
+        orderBy: { gameDate: 'desc' },
+        select: {
+          gameDate: true,
+          gamePk: true,
+          opponentId: true,
+          isHomeGame: true,
+          gamesStarted: true,
+          gamesFinished: true,
+          gamesSaved: true,
+          holds: true,
+          inningsPitched: true,
+          battersFaced: true,
+          hitsAllowed: true,
+          runsAllowed: true,
+          earnedRuns: true,
+          walks: true,
+          strikeouts: true,
+          homeRunsAllowed: true,
+          hitByPitch: true,
+          pitches: true,
+          strikes: true,
+          firstPitchStrikes: true,
+          swingingStrikes: true,
+        },
+      });
+
+      let cumulativeInnings = 0;
+      let cumulativeStrikeouts = 0;
+      let cumulativeWalks = 0;
+      let cumulativeHits = 0;
+      let cumulativeEarnedRuns = 0;
+
+      const gamesWithTotals = gameLogs.map((game) => {
+        cumulativeInnings += game.inningsPitched;
+        cumulativeStrikeouts += game.strikeouts;
+        cumulativeWalks += game.walks;
+        cumulativeHits += game.hitsAllowed;
+        cumulativeEarnedRuns += game.earnedRuns;
+
+        const era = cumulativeInnings > 0 ? ((cumulativeEarnedRuns * 9) / cumulativeInnings).toFixed(2) : null;
+        const whip = cumulativeInnings > 0 ? ((cumulativeWalks + cumulativeHits) / cumulativeInnings).toFixed(2) : null;
+
+        return {
+          ...game,
+          gameDate: game.gameDate.toISOString().split('T')[0],
+          cumulativeInnings: Number(cumulativeInnings.toFixed(2)),
+          cumulativeStrikeouts,
+          cumulativeWalks,
+          cumulativeHits,
+          cumulativeEarnedRuns,
+          runningERA: era,
+          runningWHIP: whip,
+        };
+      });
+
+      return {
+        success: true,
+        mlbamId,
+        season: targetSeason,
+        gameCount: gameLogs.length,
+        games: gamesWithTotals,
+      };
+    } catch (error) {
+      console.error('[ADMIN] Fetch pitcher game logs error:', error);
       return reply.status(500).send({
         success: false,
         error: error instanceof Error ? error.message : String(error),
@@ -938,6 +1127,230 @@ export async function adminRoutes(
       };
     } catch (error) {
       console.error('[ADMIN] Fetch derived stats error:', error);
+      return reply.status(500).send({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  // ==========================================================================
+  // GET /admin/pitcher-derived-stats/:mlbamId
+  // Check pitcher derived stats for a player
+  // ==========================================================================
+  fastify.get<{
+    Params: {
+      mlbamId: string;
+    };
+    Querystring: {
+      season?: string;
+    };
+  }>('/pitcher-derived-stats/:mlbamId', async (request, reply) => {
+    const { mlbamId } = request.params;
+    const season = parseInt(request.query.season || '2026');
+
+    console.log(`[ADMIN] Fetching pitcher derived stats for: ${mlbamId}, season: ${season}`);
+
+    try {
+      const derived = await prisma.pitcherDerivedStats.findFirst({
+        where: { playerMlbamId: mlbamId, season },
+        orderBy: { computedAt: 'desc' },
+      });
+
+      if (!derived) {
+        return reply.status(404).send({
+          success: false,
+          error: 'No pitcher derived stats found',
+          mlbamId,
+          season,
+        });
+      }
+
+      return {
+        success: true,
+        mlbamId,
+        season,
+        computedAt: derived.computedAt,
+        computedDate: derived.computedDate,
+        volume: {
+          appearancesLast7: derived.appearancesLast7,
+          appearancesLast14: derived.appearancesLast14,
+          appearancesLast30: derived.appearancesLast30,
+          inningsPitchedLast7: derived.inningsPitchedLast7,
+          inningsPitchedLast14: derived.inningsPitchedLast14,
+          inningsPitchedLast30: derived.inningsPitchedLast30,
+          battersFacedLast30: derived.battersFacedLast30,
+          gamesSavedLast30: derived.gamesSavedLast30,
+          gamesStartedLast30: derived.gamesStartedLast30,
+          pitchesPerInning: derived.pitchesPerInning,
+          daysSinceLastAppearance: derived.daysSinceLastAppearance,
+        },
+        rates: {
+          eraLast30: derived.eraLast30,
+          whipLast30: derived.whipLast30,
+          fipLast30: derived.fipLast30,
+          xfipLast30: derived.xfipLast30,
+          strikeoutRateLast30: derived.strikeoutRateLast30,
+          walkRateLast30: derived.walkRateLast30,
+          kToBBRatioLast30: derived.kToBBRatioLast30,
+          swingingStrikeRate: derived.swingingStrikeRate,
+          firstPitchStrikeRate: derived.firstPitchStrikeRate,
+          avgVelocity: derived.avgVelocity,
+          gbRatio: derived.gbRatio,
+          hrPer9: derived.hrPer9,
+        },
+        reliability: {
+          eraReliable: derived.eraReliable,
+          whipReliable: derived.whipReliable,
+          fipReliable: derived.fipReliable,
+          kRateReliable: derived.kRateReliable,
+          bbRateReliable: derived.bbRateReliable,
+          battersToReliable: derived.battersToReliable,
+        },
+        volatility: {
+          qualityStartRate: derived.qualityStartRate,
+          blowUpRate: derived.blowUpRate,
+          eraVolatility: derived.eraVolatility,
+          consistencyScore: derived.consistencyScore,
+        },
+        context: {
+          opponentOps: derived.opponentOps,
+          parkFactor: derived.parkFactor,
+          isHome: derived.isHome,
+          isCloser: derived.isCloser,
+          scheduledStartNext7: derived.scheduledStartNext7,
+          opponentNextStart: derived.opponentNextStart,
+        },
+        hasNulls: {
+          rates: {
+            eraLast30: derived.eraLast30 === null,
+            whipLast30: derived.whipLast30 === null,
+            fipLast30: derived.fipLast30 === null,
+            xfipLast30: derived.xfipLast30 === null,
+            strikeoutRateLast30: derived.strikeoutRateLast30 === null,
+            walkRateLast30: derived.walkRateLast30 === null,
+            kToBBRatioLast30: derived.kToBBRatioLast30 === null,
+            swingingStrikeRate: derived.swingingStrikeRate === null,
+            firstPitchStrikeRate: derived.firstPitchStrikeRate === null,
+            avgVelocity: derived.avgVelocity === null,
+            gbRatio: derived.gbRatio === null,
+            hrPer9: derived.hrPer9 === null,
+          },
+        },
+      };
+    } catch (error) {
+      console.error('[ADMIN] Fetch pitcher derived stats error:', error);
+      return reply.status(500).send({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  // ==========================================================================
+  // GET /admin/pitcher-score/:mlbamId
+  // Compute real pitcher score from persisted or on-demand derived data
+  // ==========================================================================
+  fastify.get<{
+    Params: {
+      mlbamId: string;
+    };
+    Querystring: {
+      season?: string;
+    };
+  }>('/pitcher-score/:mlbamId', async (request, reply) => {
+    const { mlbamId } = request.params;
+    const season = parseInt(request.query.season || '2026');
+
+    console.log(`[ADMIN] Fetching pitcher score for: ${mlbamId}, season: ${season}`);
+
+    try {
+      const score = await scoreSinglePitcher(mlbamId, season);
+
+      if (!score) {
+        return reply.status(404).send({
+          success: false,
+          error: 'No pitcher score available',
+          mlbamId,
+          season,
+        });
+      }
+
+      return {
+        success: true,
+        mlbamId,
+        season,
+        score,
+      };
+    } catch (error) {
+      console.error('[ADMIN] Fetch pitcher score error:', error);
+      return reply.status(500).send({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  // ==========================================================================
+  // GET /admin/pitcher-simulation/:mlbamId
+  // Run pitcher Monte Carlo for manual UAT
+  // ==========================================================================
+  fastify.get<{
+    Params: {
+      mlbamId: string;
+    };
+    Querystring: {
+      season?: string;
+      runs?: string;
+      horizon?: 'start' | 'week';
+      randomSeed?: string;
+    };
+  }>('/pitcher-simulation/:mlbamId', async (request, reply) => {
+    const { mlbamId } = request.params;
+    const season = parseInt(request.query.season || '2026');
+    const runs = request.query.runs ? parseInt(request.query.runs) : 5000;
+    const horizon = request.query.horizon === 'week' ? 'week' : 'start';
+    const randomSeed = request.query.randomSeed ? parseInt(request.query.randomSeed) : undefined;
+
+    console.log(`[ADMIN] Fetching pitcher simulation for: ${mlbamId}, season: ${season}`);
+
+    try {
+      const score = await scoreSinglePitcher(mlbamId, season);
+
+      if (!score) {
+        return reply.status(404).send({
+          success: false,
+          error: 'No pitcher score available for simulation',
+          mlbamId,
+          season,
+        });
+      }
+
+      const features = await getPitcherDerivedFeatures(mlbamId, season);
+      if (!features) {
+        return reply.status(404).send({
+          success: false,
+          error: 'No pitcher derived stats available for simulation',
+          mlbamId,
+          season,
+        });
+      }
+
+      const simulation = simulatePitcherOutcome(features, score, {
+        runs,
+        horizon,
+        randomSeed,
+      });
+
+      return {
+        success: true,
+        mlbamId,
+        season,
+        score,
+        simulation,
+      };
+    } catch (error) {
+      console.error('[ADMIN] Fetch pitcher simulation error:', error);
       return reply.status(500).send({
         success: false,
         error: error instanceof Error ? error.message : String(error),

@@ -106,7 +106,9 @@ interface RawPitcherStats {
   statDate: Date;
   gamesPlayed: number;
   gamesStarted: number;
+  gamesFinished: number;
   gamesSaved: number;
+  holds: number;
   inningsPitched: number;  // Can be decimal (e.g., 5.1 = 5 1/3)
   battersFaced: number;
   hitsAllowed: number;
@@ -115,12 +117,13 @@ interface RawPitcherStats {
   walks: number;
   strikeouts: number;
   homeRunsAllowed: number;
-  pitches: number;
-  strikes: number;
-  firstPitchStrikes: number;
-  swingingStrikes: number;
-  groundBalls: number;
-  flyBalls: number;
+  hitByPitch: number;
+  pitches: number | null;
+  strikes: number | null;
+  firstPitchStrikes: number | null;
+  swingingStrikes: number | null;
+  groundBalls: number | null;
+  flyBalls: number | null;
 }
 
 // ============================================================================
@@ -149,7 +152,7 @@ export function computePitcherDerivedFeatures(
   const last30 = filterByWindow(sortedStats, referenceDate, WINDOWS.long);
 
   // Compute volume features
-  const volume = computeVolumeFeatures(last7, last14, last30, sortedStats);
+  const volume = computeVolumeFeatures(last7, last14, last30, sortedStats, referenceDate);
 
   // Compute rate features
   const rates = computeRateFeatures(last30);
@@ -194,7 +197,8 @@ function computeVolumeFeatures(
   last7: RawPitcherStats[],
   last14: RawPitcherStats[],
   last30: RawPitcherStats[],
-  allStats: RawPitcherStats[]
+  allStats: RawPitcherStats[],
+  referenceDate: Date
 ): PitcherDerivedFeatures['volume'] {
   const sumAppearances = (stats: RawPitcherStats[]) =>
     stats.reduce((sum, s) => sum + (s.gamesPlayed || 0), 0);
@@ -214,18 +218,21 @@ function computeVolumeFeatures(
   const sumPitches = (stats: RawPitcherStats[]) =>
     stats.reduce((sum, s) => sum + (s.pitches || 0), 0);
 
+  const hasPitchCounts = (stats: RawPitcherStats[]) =>
+    stats.some((s) => s.pitches !== null);
+
   const appearancesLast30 = sumAppearances(last30);
   const inningsLast30 = sumInnings(last30);
 
   // Pitches per inning
   const pitchesPerInning = inningsLast30 > 0
-    ? sumPitches(last30) / inningsLast30
+    ? hasPitchCounts(last30) ? sumPitches(last30) / inningsLast30 : null
     : null;
 
   // Days since last appearance
   const daysSinceLastAppearance = allStats.length > 0
     ? Math.floor(
-        (new Date().getTime() - allStats[0].statDate.getTime()) / (1000 * 60 * 60 * 24)
+        (referenceDate.getTime() - allStats[0].statDate.getTime()) / (1000 * 60 * 60 * 24)
       )
     : null;
 
@@ -309,8 +316,14 @@ function computeRateFeatures(last30: RawPitcherStats[]): PitcherDerivedFeatures[
   const kToBB = bbRate && bbRate > 0 && kRate ? kRate / bbRate : null;
 
   // SwStr% and FPS%
-  const swStrRate = totals.battersFaced > 0 ? totals.swingingStrikes / (totals.battersFaced * 3.5) : null; // Approx 3.5 pitches per PA
-  const fpsRate = totals.battersFaced > 0 ? totals.firstPitchStrikes / totals.battersFaced : null;
+  const hasSwingingStrikeData = last30.some((s) => s.swingingStrikes !== null);
+  const hasFirstPitchStrikeData = last30.some((s) => s.firstPitchStrikes !== null);
+  const swStrRate = hasSwingingStrikeData && totals.battersFaced > 0
+    ? totals.swingingStrikes / (totals.battersFaced * 3.5)
+    : null;
+  const fpsRate = hasFirstPitchStrikeData && totals.battersFaced > 0
+    ? totals.firstPitchStrikes / totals.battersFaced
+    : null;
 
   // FIP (simplified): (13*HR + 3*BB - 2*K) / IP + constant (~3.1)
   const fip = ((13 * totals.homeRuns + 3 * totals.walks - 2 * totals.strikeouts) / totals.innings) + 3.1;
@@ -319,8 +332,9 @@ function computeRateFeatures(last30: RawPitcherStats[]): PitcherDerivedFeatures[
   const xfip = fip;
 
   // Ground ball ratio
+  const hasBattedBallData = last30.some((s) => s.groundBalls !== null || s.flyBalls !== null);
   const totalBallsInPlay = totals.groundBalls + totals.flyBalls;
-  const gbRatio = totalBallsInPlay > 0 ? totals.groundBalls / totalBallsInPlay : null;
+  const gbRatio = hasBattedBallData && totalBallsInPlay > 0 ? totals.groundBalls / totalBallsInPlay : null;
 
   // HR/9
   const hrPer9 = (totals.homeRuns / totals.innings) * 9;

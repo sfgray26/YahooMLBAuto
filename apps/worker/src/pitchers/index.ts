@@ -15,6 +15,21 @@ export {
   type PitcherDerivedFeatures,
   type RawPitcherStats,
 } from './derived.js';
+export {
+  fetchPitcherGameLogsFromApi,
+  storePitcherGameLogs,
+  ingestPitcherGameLogsForPlayers,
+  ingestPitcherGameLogs,
+} from './gameLogs.js';
+export {
+  storePitcherDerivedFeatures,
+  getPitcherDerivedFeatures,
+  getAllPitcherDerivedFeatures,
+} from './storage.js';
+export {
+  computePitcherDerivedStatsFromGameLogs,
+  batchComputePitcherDerivedStatsFromGameLogs,
+} from './fromGameLogs.js';
 export type { PitcherScore } from './compute.js';
 export { 
   simulatePitcherOutcome, 

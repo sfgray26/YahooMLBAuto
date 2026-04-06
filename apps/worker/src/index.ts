@@ -67,6 +67,33 @@ export type { MomentumMetrics } from './momentum/index.js';
 export { simulatePlayerOutcomes } from './probabilistic/index.js';
 export type { ProbabilisticOutcome, PercentileOutcomes, RiskProfile } from './probabilistic/index.js';
 
+// Pitchers
+export {
+  scorePitcher,
+  scorePitchers,
+  batchScorePitchers,
+  scoreSinglePitcher,
+  computePitcherDerivedFeatures,
+  fetchPitcherGameLogsFromApi,
+  storePitcherGameLogs,
+  ingestPitcherGameLogsForPlayers,
+  ingestPitcherGameLogs,
+  storePitcherDerivedFeatures,
+  getPitcherDerivedFeatures,
+  getAllPitcherDerivedFeatures,
+  computePitcherDerivedStatsFromGameLogs,
+  batchComputePitcherDerivedStatsFromGameLogs,
+  simulatePitcherOutcome,
+  simulatePitcherOutcomes,
+} from './pitchers/index.js';
+export type {
+  PitcherScore,
+  PitcherDerivedFeatures,
+  RawPitcherStats,
+  PitcherOutcomeDistribution,
+  PitcherSimulationConfig,
+} from './pitchers/index.js';
+
 // Trade Evaluator
 export { evaluateTrade } from './trade/evaluator.js';
 export { simulateTradeScenarios, quickTradeEstimate } from './trade/simulator.js';
