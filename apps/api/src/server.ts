@@ -9,6 +9,8 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
+import swagger from '@fastify/swagger';
+import swaggerUi from '@fastify/swagger-ui';
 
 import { prisma, closeQueues } from '@cbb/infrastructure';
 
@@ -39,6 +41,41 @@ await server.register(cors);
 await server.register(rateLimit, {
   max: 100,
   timeWindow: '1 minute',
+});
+
+// ============================================================================
+// Swagger / OpenAPI Documentation
+// ============================================================================
+
+await server.register(swagger, {
+  openapi: {
+    info: {
+      title: 'CBB Edge Analyzer API',
+      description: 'Fantasy Baseball Intelligence API - Trade Evaluation, Momentum Detection, ROS Simulation',
+      version: '1.0.0',
+    },
+    servers: [
+      { url: 'http://localhost:3000', description: 'Local development' },
+    ],
+    tags: [
+      { name: 'Health', description: 'Service health checks' },
+      { name: 'Trade', description: 'Trade evaluation and analysis' },
+      { name: 'Momentum', description: 'Player momentum and trend detection' },
+      { name: 'Simulation', description: 'Monte Carlo ROS projections' },
+      { name: 'Lineup', description: 'Lineup optimization' },
+      { name: 'Waiver', description: 'Waiver wire recommendations' },
+      { name: 'Players', description: 'Player scoring and data' },
+    ],
+  },
+});
+
+await server.register(swaggerUi, {
+  routePrefix: '/docs',
+  uiConfig: {
+    docExpansion: 'list',
+    deepLinking: false,
+  },
+  staticCSP: true,
 });
 
 // ============================================================================

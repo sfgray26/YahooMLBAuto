@@ -57,7 +57,55 @@ export async function simulationRoutes(
   // POST /simulate/ros
   // Run Monte Carlo ROS projection for a player
   // ==========================================================================
-  fastify.post('/ros', async (request, reply) => {
+  fastify.post('/ros', {
+    schema: {
+      tags: ['Simulation'],
+      summary: 'Run ROS Monte Carlo simulation',
+      description: 'Generates percentile projections for rest-of-season performance',
+      body: {
+        type: 'object',
+        required: ['playerId'],
+        properties: {
+          playerId: { type: 'string' },
+          config: {
+            type: 'object',
+            properties: {
+              simulations: { type: 'number', default: 1000 },
+              weeksRemaining: { type: 'number', default: 12 },
+            },
+          },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            projection: {
+              type: 'object',
+              properties: {
+                rosScore: {
+                  type: 'object',
+                  properties: {
+                    p10: { type: 'number' },
+                    p25: { type: 'number' },
+                    p50: { type: 'number' },
+                    p75: { type: 'number' },
+                    p90: { type: 'number' },
+                  },
+                },
+                riskProfile: {
+                  type: 'object',
+                  properties: {
+                    volatility: { type: 'string' },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  }, async (request, reply) => {
     const body = SimulateROSSchema.parse(request.body);
     
     try {
@@ -211,7 +259,13 @@ export async function simulationRoutes(
   // POST /simulate/compare
   // Compare multiple players probabilistically
   // ==========================================================================
-  fastify.post('/compare', async (request, reply) => {
+  fastify.post('/compare', {
+    schema: {
+      tags: ['Simulation'],
+      summary: 'Compare players probabilistically',
+      description: 'Head-to-head comparison with win probabilities',
+    },
+  }, async (request, reply) => {
     const body = ComparePlayersSchema.parse(request.body);
     
     try {

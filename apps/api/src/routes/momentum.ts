@@ -40,7 +40,41 @@ export async function momentumRoutes(
   // POST /momentum/analyze
   // Analyze momentum from Z-score inputs
   // ==========================================================================
-  fastify.post('/analyze', async (request, reply) => {
+  fastify.post('/analyze', {
+    schema: {
+      tags: ['Momentum'],
+      summary: 'Analyze player momentum',
+      description: 'Calculates momentum metrics from Z-scores (ΔZ = Z_14d - Z_30d)',
+      body: {
+        type: 'object',
+        required: ['zScore14d', 'zScore30d'],
+        properties: {
+          zScore14d: { type: 'number', description: 'Z-score over last 14 days' },
+          zScore30d: { type: 'number', description: 'Z-score over last 30 days' },
+          games14d: { type: 'number', default: 12 },
+          games30d: { type: 'number', default: 20 },
+          playerName: { type: 'string' },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            momentum: {
+              type: 'object',
+              properties: {
+                trend: { type: 'string', enum: ['surging', 'hot', 'stable', 'cold', 'collapsing'] },
+                zScoreSlope: { type: 'number' },
+                breakoutSignal: { type: 'boolean' },
+                collapseWarning: { type: 'boolean' },
+                recommendation: { type: 'string', enum: ['buy', 'hold', 'sell', 'avoid'] },
+              },
+            },
+          },
+        },
+      },
+    },
+  }, async (request, reply) => {
     const body = MomentumAnalyzeSchema.parse(request.body);
     
     try {
@@ -72,7 +106,19 @@ export async function momentumRoutes(
   // GET /momentum/:playerId
   // Get momentum for a specific player from database
   // ==========================================================================
-  fastify.get('/:playerId', async (request, reply) => {
+  fastify.get('/:playerId', {
+    schema: {
+      tags: ['Momentum'],
+      summary: 'Get player momentum from database',
+      params: {
+        type: 'object',
+        required: ['playerId'],
+        properties: {
+          playerId: { type: 'string' },
+        },
+      },
+    },
+  }, async (request, reply) => {
     const { playerId } = request.params as { playerId: string };
     const { season } = request.query as { season?: string };
     
@@ -170,7 +216,13 @@ export async function momentumRoutes(
   // GET /momentum/leaders/hot
   // Get hottest players (surging momentum)
   // ==========================================================================
-  fastify.get('/leaders/hot', async (request, reply) => {
+  fastify.get('/leaders/hot', {
+    schema: {
+      tags: ['Momentum'],
+      summary: 'Get hottest players',
+      description: 'Returns players with strongest positive momentum',
+    },
+  }, async (request, reply) => {
     const { season, limit = '10' } = request.query as { season?: string; limit?: string };
     const targetSeason = season ? parseInt(season) : new Date().getFullYear();
 

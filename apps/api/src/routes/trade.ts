@@ -60,7 +60,77 @@ export async function tradeRoutes(
   // POST /trade/evaluate
   // Evaluate a trade proposal
   // ==========================================================================
-  fastify.post('/evaluate', async (request, reply) => {
+  fastify.post('/evaluate', {
+    schema: {
+      tags: ['Trade'],
+      summary: 'Evaluate a trade proposal',
+      description: 'Analyzes a trade using ROS projections, category impact, and risk assessment',
+      body: {
+        type: 'object',
+        required: ['proposal'],
+        properties: {
+          proposal: {
+            type: 'object',
+            required: ['playersYouGive', 'playersYouGet'],
+            properties: {
+              playersYouGive: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  required: ['playerId', 'playerMlbamId', 'name', 'positions', 'team'],
+                  properties: {
+                    playerId: { type: 'string' },
+                    playerMlbamId: { type: 'string' },
+                    name: { type: 'string' },
+                    positions: { type: 'array', items: { type: 'string' } },
+                    team: { type: 'string' },
+                    isInjured: { type: 'boolean', default: false },
+                    gamesThisWeek: { type: 'number', default: 6 },
+                  },
+                },
+              },
+              playersYouGet: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  required: ['playerId', 'playerMlbamId', 'name', 'positions', 'team'],
+                  properties: {
+                    playerId: { type: 'string' },
+                    playerMlbamId: { type: 'string' },
+                    name: { type: 'string' },
+                    positions: { type: 'array', items: { type: 'string' } },
+                    team: { type: 'string' },
+                    isInjured: { type: 'boolean', default: false },
+                    gamesThisWeek: { type: 'number', default: 6 },
+                  },
+                },
+              },
+            },
+          },
+          config: {
+            type: 'object',
+            properties: {
+              format: { type: 'string', enum: ['roto', 'h2h_points', 'h2h_categories'], default: 'roto' },
+              riskTolerance: { type: 'string', enum: ['conservative', 'balanced', 'aggressive'], default: 'balanced' },
+              leagueSize: { type: 'number', default: 12 },
+            },
+          },
+          outputFormat: { type: 'string', enum: ['json', 'text', 'markdown'], default: 'json' },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            recommendation: { type: 'string', enum: ['strong_accept', 'lean_accept', 'neutral', 'lean_reject', 'hard_reject'] },
+            summaryScore: { type: 'number' },
+            fairness: { type: 'string' },
+          },
+        },
+      },
+    },
+  }, async (request, reply) => {
     const traceId = uuidv4();
     const body = TradeEvaluateSchema.parse(request.body);
     
@@ -134,7 +204,13 @@ export async function tradeRoutes(
   // POST /trade/quick-estimate
   // Quick value estimate without full simulation
   // ==========================================================================
-  fastify.post('/quick-estimate', async (request, reply) => {
+  fastify.post('/quick-estimate', {
+    schema: {
+      tags: ['Trade'],
+      summary: 'Quick trade value estimate',
+      description: 'Simple score-based trade calculation without full ROS simulation',
+    },
+  }, async (request, reply) => {
     const body = z.object({
       playersYouGive: z.array(z.object({
         name: z.string(),
@@ -170,7 +246,13 @@ export async function tradeRoutes(
   // GET /trade/examples
   // Get example trade proposals for testing
   // ==========================================================================
-  fastify.get('/examples', async () => {
+  fastify.get('/examples', {
+    schema: {
+      tags: ['Trade'],
+      summary: 'Get example trade payloads',
+      description: 'Returns sample trade proposals for testing the evaluate endpoint',
+    },
+  }, async () => {
     return {
       examples: [
         {
