@@ -7,7 +7,7 @@
 
 import { prisma } from '@cbb/infrastructure';
 import { v4 as uuidv4 } from 'uuid';
-import { scorePlayer, scorePlayers, type PlayerScore } from './compute.js';
+import { scorePlayer, type PlayerScore } from './compute.js';
 import type { DerivedFeatures } from '../derived/index.js';
 
 interface BatchScoreInput {
@@ -120,10 +120,29 @@ export async function batchScorePlayers(
       },
     }));
 
-    // Score all players
+    // Score all players, but keep unsupported records from aborting the batch.
     console.log(`[SCORING] Computing scores for ${featuresList.length} players...`);
 
-    const scores = scorePlayers(featuresList);
+    const scores: PlayerScore[] = [];
+    for (const features of featuresList) {
+      try {
+        scores.push(scorePlayer(features));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        errors.push(`${features.playerMlbamId}: ${message}`);
+      }
+    }
+
+    if (scores.length === 0) {
+      return {
+        success: false,
+        traceId,
+        playersScored: 0,
+        scores: [],
+        errors: errors.length > 0 ? errors : ['No supported hitters available for scoring.'],
+        durationMs: Date.now() - startTime,
+      };
+    }
 
     // Log summary statistics
     const avgScore = scores.reduce((sum, s) => sum + s.overallValue, 0) / scores.length;
@@ -139,7 +158,9 @@ export async function batchScorePlayers(
 
     const durationMs = Date.now() - startTime;
 
-    console.log(`[SCORING] Complete: ${scores.length} players scored in ${durationMs}ms`);
+    console.log(`[SCORING] Complete: ${scores.length} players scored in ${durationMs}ms`, {
+      skipped: errors.length,
+    });
 
     return {
       success: true,

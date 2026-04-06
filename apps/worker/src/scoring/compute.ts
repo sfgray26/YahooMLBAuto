@@ -111,6 +111,7 @@ const LEAGUE_AVG_2025 = {
  * Some positions are grouped (e.g., corner OF) if scarcity is similar
  */
 export type PositionGroup = 'C' | '1B' | '2B' | '3B' | 'SS' | 'OF' | 'DH';
+type UnsupportedScoringRole = 'pitcher' | 'two_way' | 'unknown';
 
 /**
  * Position-specific means and standard deviations
@@ -161,7 +162,38 @@ function getPositionGroup(positions: string[]): PositionGroup {
   if (posSet.has('OF') || posSet.has('LF') || posSet.has('CF') || posSet.has('RF') || posSet.has('OUTFIELD')) return 'OF';
   if (posSet.has('DH') || posSet.has('DESIGNATED HITTER')) return 'DH';
   
-  return 'OF'; // Default fallback
+  throw new Error(`Unable to determine hitter position from eligibility: ${positions.join(', ')}`);
+}
+
+function getUnsupportedScoringRole(positions: string[]): UnsupportedScoringRole | null {
+  const normalizedPositions = positions
+    .map((position) => position.trim().toUpperCase())
+    .filter(Boolean);
+
+  if (normalizedPositions.length === 0) {
+    return 'unknown';
+  }
+
+  const hasPitchingEligibility = normalizedPositions.some((position) =>
+    ['P', 'SP', 'RP', 'CL', 'CP'].includes(position)
+  );
+  const hasHittingEligibility = normalizedPositions.some((position) =>
+    ['C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF', 'OF', 'DH', 'UTIL', 'UT', 'CATCHER', 'FIRST BASE', 'SECOND BASE', 'THIRD BASE', 'SHORTSTOP', 'OUTFIELD', 'DESIGNATED HITTER'].includes(position)
+  );
+
+  if (hasPitchingEligibility && hasHittingEligibility) {
+    return 'two_way';
+  }
+
+  if (hasPitchingEligibility) {
+    return 'pitcher';
+  }
+
+  if (!hasHittingEligibility) {
+    return 'unknown';
+  }
+
+  return null;
 }
 
 /**
@@ -308,18 +340,8 @@ function scorePower(
  * Calculate speed component score.
  * Based on stolen bases, caught stealing efficiency.
  */
-function scoreSpeed(volume: DerivedFeatures['volume']): number {
-  let score = 50;
-
-  const sbPerGame = volume.plateAppearancesLast30 > 0
-    ? 0 // Would need SB data in derived features
-    : 0;
-
-  // For now, base on volume/opportunity as proxy
-  if (volume.gamesLast30 >= 25) score += 5;
-  if (volume.plateAppearancesLast30 >= 100) score += 5;
-
-  return Math.max(0, Math.min(100, score));
+function scoreSpeed(): number {
+  return 50;
 }
 
 /**
@@ -430,6 +452,7 @@ function scoreOpportunity(
  * Based on sample size, stabilization status.
  */
 function calculateConfidence(
+  rates: DerivedFeatures['rates'],
   stabilization: DerivedFeatures['stabilization'],
   volume: DerivedFeatures['volume']
 ): { confidence: number; sampleSize: PlayerScore['reliability']['sampleSize'] } {
@@ -450,6 +473,14 @@ function calculateConfidence(
   if (stabilization.opsReliable) confidence += 0.15;
   else if (stabilization.slgReliable) confidence += 0.1;
 
+  const hasBabipOutlier =
+    rates.babipLast30 !== null &&
+    (rates.babipLast30 < 0.24 || rates.babipLast30 > 0.38);
+
+  if (hasBabipOutlier && !stabilization.battingAverageReliable) {
+    confidence -= 0.15;
+  }
+
   // Determine sample size category
   let sampleSize: PlayerScore['reliability']['sampleSize'];
   if (volume.plateAppearancesLast30 < 30) sampleSize = 'insufficient';
@@ -463,6 +494,21 @@ function calculateConfidence(
   };
 }
 
+function hasSuspiciousBabip(
+  rates: DerivedFeatures['rates'],
+  stabilization: DerivedFeatures['stabilization']
+): boolean {
+  if (rates.babipLast30 === null) {
+    return false;
+  }
+
+  if (stabilization.battingAverageReliable) {
+    return false;
+  }
+
+  return rates.babipLast30 < 0.24 || rates.babipLast30 > 0.38;
+}
+
 /**
  * Generate explanation for the score.
  * Now includes position context for scarcity awareness.
@@ -471,7 +517,8 @@ function generateExplanation(
   components: PlayerScore['components'],
   rates: DerivedFeatures['rates'],
   opportunity: DerivedFeatures['opportunity'],
-  positionGroup: PositionGroup
+  positionGroup: PositionGroup,
+  stabilization: DerivedFeatures['stabilization']
 ): PlayerScore['explanation'] {
   const strengths: string[] = [];
   const concerns: string[] = [];
@@ -507,6 +554,7 @@ function generateExplanation(
   if (components.plateDiscipline <= 40) concerns.push('Poor plate discipline');
   if (components.consistency <= 40) concerns.push('High volatility');
   if (components.opportunity <= 40) concerns.push('Playing time concerns');
+  if (hasSuspiciousBabip(rates, stabilization)) concerns.push('Recent production may be BABIP-driven');
 
   // Summary based on overall profile
   let summary = '';
@@ -561,15 +609,29 @@ export function scorePlayer(
   } = {}
 ): PlayerScore {
   const weights = { ...DEFAULT_WEIGHTS, ...options.weights };
+  const positionEligibility = features.replacement?.positionEligibility || [];
+  const unsupportedRole = getUnsupportedScoringRole(positionEligibility);
+
+  if (unsupportedRole === 'pitcher') {
+    throw new Error(`Pitcher eligibility is not supported by hitter scoring: ${positionEligibility.join(', ')}`);
+  }
+
+  if (unsupportedRole === 'two_way') {
+    throw new Error(`Two-way eligibility is not supported by hitter scoring: ${positionEligibility.join(', ')}`);
+  }
+
+  if (unsupportedRole === 'unknown') {
+    throw new Error(`Unknown position eligibility is not supported by hitter scoring: ${positionEligibility.join(', ') || 'none'}`);
+  }
 
   // Determine primary position for scarcity calculations
-  const positionGroup = getPositionGroup(features.replacement?.positionEligibility || ['OF']);
+  const positionGroup = getPositionGroup(positionEligibility);
 
   // Calculate component scores with POSITION-ADJUSTED Z-scores
   const components: PlayerScore['components'] = {
     hitting: Math.round(scoreHitting(features.rates, positionGroup)),
     power: Math.round(scorePower(features.rates, positionGroup)),
-    speed: Math.round(scoreSpeed(features.volume)),
+    speed: Math.round(scoreSpeed()),
     plateDiscipline: Math.round(scorePlateDiscipline(features.rates)),
     consistency: Math.round(scoreConsistency(features.volatility)),
     opportunity: Math.round(scoreOpportunity(features.opportunity, features.volume)),
@@ -607,15 +669,17 @@ export function scorePlayer(
 
   // Calculate confidence for display/explanation purposes
   const { confidence: statConfidence, sampleSize } = calculateConfidence(
+    features.rates,
     features.stabilization,
     features.volume
   );
 
-  // Combined confidence includes both statistical reliability and sample size
-  const confidence = Math.round((statConfidence + sampleConfidence) / 2 * 100) / 100;
+  // Combined confidence must be constrained by the weakest signal.
+  const confidence = Math.round(Math.min(statConfidence, sampleConfidence) * 100) / 100;
+  const statsReliable = features.stabilization.opsReliable && !hasSuspiciousBabip(features.rates, features.stabilization);
 
   // Generate explanation with position context
-  const explanation = generateExplanation(components, features.rates, features.opportunity, positionGroup);
+  const explanation = generateExplanation(components, features.rates, features.opportunity, positionGroup, features.stabilization);
 
   return {
     playerId: features.playerId,
@@ -628,7 +692,7 @@ export function scorePlayer(
     reliability: {
       sampleSize,
       gamesToReliable: features.stabilization.gamesToReliable,
-      statsReliable: features.stabilization.opsReliable,
+      statsReliable,
     },
     explanation,
     inputs: {

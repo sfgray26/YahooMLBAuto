@@ -92,8 +92,13 @@ const mockWeakPlayer = {
   rates: {
     ...mockDerivedFeatures.rates,
     battingAverageLast30: 0.215,
+    onBasePctLast30: 0.282,
+    sluggingPctLast30: 0.376,
     opsLast30: 0.658,
     isoLast30: 0.095,
+    walkRateLast30: 0.045,
+    strikeoutRateLast30: 0.32,
+    babipLast30: 0.248,
   },
   opportunity: {
     ...mockDerivedFeatures.opportunity,
@@ -113,6 +118,20 @@ console.log('='.repeat(60));
 const score1 = scorePlayer(mockDerivedFeatures);
 const score2 = scorePlayer(mockElitePlayer);
 const score3 = scorePlayer(mockWeakPlayer);
+const pitcherRejected = (() => {
+  try {
+    scorePlayer({
+      ...mockDerivedFeatures,
+      replacement: {
+        ...mockDerivedFeatures.replacement,
+        positionEligibility: ['RP'],
+      },
+    });
+    return false;
+  } catch {
+    return true;
+  }
+})();
 
 console.log('\nPlayer 1 (Average):');
 console.log(`  Overall Value: ${score1.overallValue}`);
@@ -133,6 +152,7 @@ console.log(`  Confidence: ${(score3.confidence * 100).toFixed(0)}%`);
 // Validation
 const scoringWorks = score2.overallValue > score1.overallValue && score1.overallValue > score3.overallValue;
 console.log(`\n✅ Scoring correctly ranks players: ${scoringWorks ? 'PASS' : 'FAIL'}`);
+console.log(`✅ Unsupported pitcher scoring rejected: ${pitcherRejected ? 'PASS' : 'FAIL'}`);
 
 // ============================================================================
 // Test 2 & 3: Skipped - needs TeamState refactor
@@ -152,6 +172,7 @@ console.log('\n' + '='.repeat(60));
 console.log('VALIDATION SUMMARY');
 console.log('='.repeat(60));
 console.log('✅ Player Scoring: Working - correctly ranks players by value');
+console.log('✅ Role Guardrails: Unsupported pitcher scoring is rejected');
 console.log('⏸️  Lineup Assembly: Needs TeamState refactor');
 console.log('⏸️  Waiver Assembly: Needs TeamState refactor');
 console.log('\n🎉 Core scoring pipeline validated!');
