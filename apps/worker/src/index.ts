@@ -63,7 +63,7 @@ export type { MomentumMetrics } from './momentum/index.js';
 
 // Probabilistic / Monte Carlo
 export { simulatePlayerOutcomes } from './probabilistic/index.js';
-export type { ProbabilisticOutcome, SimulationResult, PercentileOutcomes, RiskProfile } from './probabilistic/index.js';
+export type { ProbabilisticOutcome, PercentileOutcomes, RiskProfile } from './probabilistic/index.js';
 
 // Trade Evaluator
 export { evaluateTrade } from './trade/evaluator.js';
