@@ -12,6 +12,7 @@
 import { prisma } from '@cbb/infrastructure';
 import { ingestGameLogsForPlayers } from './ingestion/gameLogs.js';
 import { batchComputeDerivedStatsFromGameLogs } from './derived/fromGameLogs.js';
+import { classifyPlayerRole } from './verification/playerIdentity.js';
 
 const logger = {
   info: (msg: string, meta?: Record<string, unknown>) => console.log(`[DAILY-INGEST] ${msg}`, meta ? JSON.stringify(meta) : ''),
@@ -64,11 +65,23 @@ async function runDailyIngestion() {
       where: { isActive: true }
     });
 
-    const playerIds = verifiedPlayers.map((p: { mlbamId: string }) => p.mlbamId);
-    logger.info(`Found ${playerIds.length} verified players`);
+    const hitterPlayers = verifiedPlayers.filter((player: { position: string | null }) => classifyPlayerRole(player.position) === 'hitter');
+    const pitcherCount = verifiedPlayers.filter((player: { position: string | null }) => classifyPlayerRole(player.position) === 'pitcher').length;
+    const unsupportedCount = verifiedPlayers.filter((player: { position: string | null }) => {
+      const role = classifyPlayerRole(player.position);
+      return role === 'two_way' || role === 'unknown';
+    }).length;
+
+    const playerIds = hitterPlayers.map((p: { mlbamId: string }) => p.mlbamId);
+    logger.info('Prepared verified players for hitter ingestion', {
+      totalVerifiedPlayers: verifiedPlayers.length,
+      hitterPlayers: playerIds.length,
+      pitchersSkipped: pitcherCount,
+      unsupportedSkipped: unsupportedCount,
+    });
 
     if (playerIds.length === 0) {
-      logger.info('No verified players found, skipping ingestion');
+      logger.info('No hitter-classified verified players found, skipping ingestion');
       return;
     }
 

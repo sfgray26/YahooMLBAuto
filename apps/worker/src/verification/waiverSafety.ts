@@ -92,6 +92,15 @@ export async function recommendWaiverPickup(
       console.log(`[${traceId}] Found verified player: ${identity.fullName}`);
     }
 
+    if (identity.role !== 'hitter') {
+      return {
+        mlbamId,
+        error: `Player ${identity.fullName} is classified as ${identity.role}; hitter scoring is not supported for this role.`,
+        verified: false,
+        traceId,
+      };
+    }
+
     // =========================================================================
     // STEP 3: Now safe to compute score
     // =========================================================================

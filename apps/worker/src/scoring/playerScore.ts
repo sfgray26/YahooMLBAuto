@@ -6,6 +6,7 @@
  */
 
 import { prisma } from '@cbb/infrastructure';
+import { classifyPlayerRole } from '../verification/playerIdentity.js';
 
 export interface PlayerScore {
   overallValue: number;
@@ -33,6 +34,23 @@ export interface PlayerScore {
 export async function computePlayerScore(mlbamId: string): Promise<PlayerScore> {
   const traceId = `score-${mlbamId}-${Date.now()}`;
   console.log(`[${traceId}] Computing score for: ${mlbamId}`);
+
+  const verifiedPlayer = await prisma.verifiedPlayer.findUnique({
+    where: { mlbamId },
+    select: {
+      fullName: true,
+      position: true,
+    },
+  });
+
+  if (verifiedPlayer) {
+    const role = classifyPlayerRole(verifiedPlayer.position);
+    if (role !== 'hitter') {
+      throw new Error(
+        `Player ${verifiedPlayer.fullName} (${mlbamId}) is classified as ${role}; hitter scoring does not support this role.`
+      );
+    }
+  }
 
   // Fetch derived stats
   const derived = await prisma.playerDerivedStats.findFirst({

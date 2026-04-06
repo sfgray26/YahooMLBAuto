@@ -32,8 +32,10 @@ export {
   isPlayerVerified,
   getVerifiedPlayer,
   upsertVerifiedPlayer,
+  classifyPlayerRole,
+  supportsHitterGameLogSourcing,
 } from './verification/playerIdentity.js';
-export type { PlayerIdentity as VerifiedIdentity } from './verification/playerIdentity.js';
+export type { PlayerIdentity as VerifiedIdentity, PlayerRole } from './verification/playerIdentity.js';
 
 // Gated Ingestion (hard boundary - no player enters without verification)
 export {

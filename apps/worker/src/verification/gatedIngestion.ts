@@ -59,6 +59,17 @@ export async function ingestPlayer(mlbamId: string): Promise<GatedIngestionResul
     const identity = verification.identity;
     console.log(`[${traceId}] GATEKEEPER PASSED: ${identity.fullName}`);
 
+    if (identity.role !== 'hitter') {
+      const error = `Player ${identity.fullName} (${mlbamId}) is classified as ${identity.role}; the current game-log ingestion path only supports hitters.`;
+      console.error(`[${traceId}] ROLE GATE REJECTED: ${error}`);
+      return {
+        success: false,
+        mlbamId,
+        error,
+        traceId,
+      };
+    }
+
     // =========================================================================
     // STEP 2: Store verified identity in registry
     // =========================================================================

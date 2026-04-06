@@ -9,18 +9,83 @@ import { prisma } from '@cbb/infrastructure';
 
 const MLB_STATS_BASE_URL = 'https://statsapi.mlb.com/api/v1';
 
+export type PlayerRole = 'hitter' | 'pitcher' | 'two_way' | 'unknown';
+
 export interface PlayerIdentity {
   mlbamId: string;
   fullName: string;
   team: string | null;
   position: string | null;
   active: boolean;
+  role: PlayerRole;
 }
 
 export interface VerificationResult {
   valid: boolean;
   identity?: PlayerIdentity;
   error?: string;
+}
+
+const PITCHER_POSITIONS = new Set(['P', 'SP', 'RP', 'CL', 'CP']);
+const HITTER_POSITIONS = new Set([
+  'C',
+  '1B',
+  '2B',
+  '3B',
+  'SS',
+  'LF',
+  'CF',
+  'RF',
+  'OF',
+  'DH',
+  'UT',
+  'UTIL',
+]);
+
+export function classifyPlayerRole(position: string | null | undefined): PlayerRole {
+  if (!position) {
+    return 'unknown';
+  }
+
+  const normalized = position.trim().toUpperCase();
+
+  if (normalized.includes('/') || normalized.includes(',')) {
+    const parts = normalized
+      .split(/[\/,]/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+
+    const hasPitcherRole = parts.some((part) => PITCHER_POSITIONS.has(part));
+    const hasHitterRole = parts.some((part) => HITTER_POSITIONS.has(part));
+
+    if (hasPitcherRole && hasHitterRole) {
+      return 'two_way';
+    }
+
+    if (hasPitcherRole) {
+      return 'pitcher';
+    }
+
+    if (hasHitterRole) {
+      return 'hitter';
+    }
+
+    return 'unknown';
+  }
+
+  if (PITCHER_POSITIONS.has(normalized)) {
+    return 'pitcher';
+  }
+
+  if (HITTER_POSITIONS.has(normalized)) {
+    return 'hitter';
+  }
+
+  return 'unknown';
+}
+
+export function supportsHitterGameLogSourcing(position: string | null | undefined): boolean {
+  return classifyPlayerRole(position) === 'hitter';
 }
 
 /**
@@ -56,7 +121,11 @@ export async function verifyPlayerIdentity(mlbamId: string): Promise<Verificatio
         fullName: string;
         active?: boolean;
         currentTeam?: { name: string };
-        primaryPosition?: { abbreviation: string };
+        primaryPosition?: {
+          abbreviation?: string;
+          type?: string;
+          name?: string;
+        };
       }>;
     };
 
@@ -77,12 +146,19 @@ export async function verifyPlayerIdentity(mlbamId: string): Promise<Verificatio
     }
 
     // Step 4: Construct verified identity
+    const position =
+      person.primaryPosition?.abbreviation ||
+      person.primaryPosition?.type ||
+      person.primaryPosition?.name ||
+      null;
+
     const identity: PlayerIdentity = {
       mlbamId: String(person.id),
       fullName: person.fullName,
       team: person.currentTeam?.name || null,
-      position: person.primaryPosition?.abbreviation || null,
+      position,
       active: person.active || false,
+      role: classifyPlayerRole(position),
     };
 
     console.log(`[${traceId}] Identity verified: ${identity.fullName} (${mlbamId})`);
@@ -128,6 +204,7 @@ export async function getVerifiedPlayer(mlbamId: string): Promise<PlayerIdentity
     team: verified.team,
     position: verified.position,
     active: verified.isActive,
+    role: classifyPlayerRole(verified.position),
   };
 }
 
