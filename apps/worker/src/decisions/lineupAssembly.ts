@@ -31,7 +31,7 @@ import type {
   ConfidenceLevel,
 } from '@cbb/core';
 import type { PlayerScore } from '../scoring/index.js';
-import type { PitcherScore } from '../pitchers/index.js';
+import type { PitcherOutcomeDistribution, PitcherScore } from '../pitchers/index.js';
 import { confidenceLevelToScore, mapConfidenceLabel } from './confidence.js';
 import { 
   isPlayerOnRoster, 
@@ -49,6 +49,7 @@ export interface TeamStateLineupInput {
   teamState: TeamState;                        // Canonical team representation
   hitterScores: Map<string, PlayerScore>;     // mlbamId -> hitter score
   pitcherScores: Map<string, PitcherScore>;   // mlbamId -> pitcher score
+  pitcherSimulations?: Map<string, PitcherOutcomeDistribution>;
   manualLocks?: Set<UUID>;                    // Additional manual locks
   excludedPlayerIds?: Set<UUID>;              // Players to exclude (injuries, etc.)
 }
@@ -163,6 +164,7 @@ interface PitcherAssemblyContext {
   scoredPitchers: Array<{
     player: PlayerIdentity;
     score: PitcherScore;
+    simulation?: PitcherOutcomeDistribution;
     overallValue: number;
     confidence: number;
     role: PitcherScore['role'];
@@ -231,7 +233,7 @@ function assemblePitchers(
       const slot: LineupSlot = {
         position: slotConfig.slotId,
         player: selected.player,
-        projectedPoints: calculatePitcherProjectedPoints(selected.score),
+        projectedPoints: calculatePitcherProjectedPoints(selected.score, selected.simulation),
         confidence: mapConfidenceLabel(selected.confidence),
         factors: generatePitcherFactors(selected.score),
       };
@@ -257,7 +259,7 @@ function assemblePitchers(
 // ============================================================================
 
 export function assembleLineupFromTeamState(input: TeamStateLineupInput): AssemblyResult {
-  const { teamState, hitterScores, pitcherScores, manualLocks, excludedPlayerIds } = input;
+  const { teamState, hitterScores, pitcherScores, pitcherSimulations, manualLocks, excludedPlayerIds } = input;
   const errors: string[] = [];
   const traceId = crypto.randomUUID();
 
@@ -303,6 +305,7 @@ export function assembleLineupFromTeamState(input: TeamStateLineupInput): Assemb
               position: rosterPlayer.positions,
             },
             score,
+            simulation: pitcherSimulations?.get(rosterPlayer.mlbamId),
             overallValue: score.overallValue,
             confidence: score.confidence,
             role: score.role,
@@ -426,7 +429,14 @@ function calculateHitterProjectedPoints(score: PlayerScore): number {
   return Math.round((basePoints + confidenceAdjustment) * 10) / 10;
 }
 
-function calculatePitcherProjectedPoints(score: PitcherScore): number {
+function calculatePitcherProjectedPoints(
+  score: PitcherScore,
+  simulation?: PitcherOutcomeDistribution
+): number {
+  if (simulation) {
+    return Math.round(simulation.expectedValue * 10) / 10;
+  }
+
   const roleMultiplier = score.role.currentRole === 'SP' ? 1.0 :
                          score.role.isCloser ? 0.8 :
                          score.role.holdsEligible ? 0.6 : 0.5;
@@ -461,7 +471,7 @@ function generatePitcherFactors(score: PitcherScore): string[] {
 export function generateAlternatives(
   lineup: LineupSlot[],
   rosterHitters: Array<{ player: PlayerIdentity; score: PlayerScore; overallValue: number; confidence: number; eligibleSlots: string[] }>,
-  rosterPitchers: Array<{ player: PlayerIdentity; score: PitcherScore; overallValue: number; confidence: number; eligibleSlots: string[] }>,
+  rosterPitchers: Array<{ player: PlayerIdentity; score: PitcherScore; simulation?: PitcherOutcomeDistribution; overallValue: number; confidence: number; eligibleSlots: string[] }>,
   hittingSlots: Array<{ slotId: string }>,
   pitcherSlots: Array<{ slotId: string }>
 ): AlternativeLineup[] {
@@ -486,7 +496,10 @@ export function generateAlternatives(
     if (alternativesForSlot.length > 0) {
       const nextBest = alternativesForSlot[0];
       const replacementProjectedPoints = isPitcherSlot
-        ? calculatePitcherProjectedPoints((nextBest as { score: PitcherScore }).score)
+        ? calculatePitcherProjectedPoints(
+            (nextBest as { score: PitcherScore; simulation?: PitcherOutcomeDistribution }).score,
+            (nextBest as { score: PitcherScore; simulation?: PitcherOutcomeDistribution }).simulation
+          )
         : calculateHitterProjectedPoints((nextBest as { score: PlayerScore }).score);
       const replacementFactors = isPitcherSlot
         ? generatePitcherFactors((nextBest as { score: PitcherScore }).score)
@@ -620,11 +633,11 @@ function buildTeamAwareSummary(
   teamState: TeamState
 ): string {
   const lockedCount = teamState.currentLineup.lockedSlots.length;
-  const totalRosterSize = teamState.roster.players.length;
+  const totalActiveSlots = teamState.lineupConfig.slots.filter((slot) => slot.domain !== 'bench').length;
   
   return `Optimized lineup for ${teamState.identity.teamName}: ` +
     `${hitterCount} hitters + ${pitcherCount} pitchers ` +
-    `(${lineup.length}/${totalRosterSize} roster spots filled). ` +
+    `(${lineup.length}/${totalActiveSlots} active slots filled). ` +
     `Projected ${expectedPoints.toFixed(1)} points. ` +
     `${lockedCount > 0 ? `${lockedCount} locked. ` : ''}` +
     `${lineup.filter(s => confidenceLevelToScore(s.confidence) >= confidenceLevelToScore('high')).length} high-confidence selections.`;
@@ -651,6 +664,7 @@ export interface DomainAwareAssemblyInput {
   teamState: TeamState;
   hitterScores: Map<string, PlayerScore>;
   pitcherScores: Map<string, PitcherScore>;
+  pitcherSimulations?: Map<string, PitcherOutcomeDistribution>;
   manualLocks?: Set<UUID>;
   excludedPlayerIds?: Set<UUID>;
 }

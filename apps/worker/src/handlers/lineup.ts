@@ -13,6 +13,7 @@ import { validateTeamState, type LineupOptimizationRequest, type LineupOptimizat
 import { assembleLineup, type AssemblyInput } from '../decisions/index.js';
 import { persistLineupDecisionSnapshot } from './decision-persistence.js';
 import { buildTeamStateFromLineupRequest, getSeasonFromTimestamp, loadScoreMaps } from './request-context.js';
+import { getPitcherDerivedFeatures, simulatePitcherOutcome, type PitcherOutcomeDistribution } from '../pitchers/index.js';
 
 export async function handleLineupOptimization(
   request: LineupOptimizationRequest,
@@ -64,10 +65,33 @@ export async function handleLineupOptimization(
     throw new Error('No derived hitter or pitcher scores were available for the requested roster');
   }
 
+  const pitcherSimulations = new Map<string, PitcherOutcomeDistribution>();
+  for (const player of teamState.roster.players) {
+    const pitcherScore = pitcherScores.get(player.mlbamId);
+    if (!pitcherScore) {
+      continue;
+    }
+
+    const features = await getPitcherDerivedFeatures(player.mlbamId, season);
+    if (!features) {
+      continue;
+    }
+
+    pitcherSimulations.set(
+      player.mlbamId,
+      simulatePitcherOutcome(features, pitcherScore, {
+        runs: 2_000,
+        horizon: 'start',
+        randomSeed: Number.parseInt(player.mlbamId, 10) || undefined,
+      })
+    );
+  }
+
   const assemblyInput: AssemblyInput = {
     teamState,
     hitterScores,
     pitcherScores,
+    pitcherSimulations,
     manualLocks: new Set(request.rosterConstraints.mustInclude ?? []),
     excludedPlayerIds: new Set(request.rosterConstraints.mustExclude ?? []),
   };

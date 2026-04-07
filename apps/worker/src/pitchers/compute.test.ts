@@ -255,4 +255,27 @@ describe('pitcher pipeline helpers', () => {
     expect(strongSimulation.componentStats.avgEarnedRuns).toBeLessThan(3.5);
     expect(strongSimulation.blowUpRisk).toBeLessThan(0.35);
   });
+
+  it('reduces confidence when the pitcher sample is still insufficient', () => {
+    const uncertainStarter = makeFeatures({
+      stabilization: {
+        ...makeFeatures().stabilization,
+        eraReliable: false,
+        whipReliable: false,
+        fipReliable: false,
+        kRateReliable: false,
+        bbRateReliable: false,
+        battersToReliable: 45,
+      },
+    });
+
+    const simulation = simulatePitcherOutcome(uncertainStarter, scorePitcher(uncertainStarter), {
+      runs: 800,
+      horizon: 'start',
+      randomSeed: 4242,
+    });
+
+    expect(simulation.confidenceImpact).toBe('decrease');
+    expect(simulation.confidenceDelta).toBeLessThan(0);
+  });
 });

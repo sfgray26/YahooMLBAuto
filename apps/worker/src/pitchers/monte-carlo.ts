@@ -631,6 +631,11 @@ export function simulatePitcherOutcome(
     confidenceImpact = 'increase';
     confidenceDelta = 0.08;
   }
+
+  if (score.reliability.sampleSize === 'insufficient' || !score.reliability.statsReliable) {
+    confidenceImpact = 'decrease';
+    confidenceDelta = Math.min(confidenceDelta, -0.08);
+  }
   
   // Build notes
   const notes: string[] = [];

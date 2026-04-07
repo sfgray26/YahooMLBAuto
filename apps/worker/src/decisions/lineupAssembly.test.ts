@@ -121,7 +121,7 @@ describe('generateAlternatives', () => {
       ],
       [
         { player: makePlayer('3', 'Starter SP', ['SP']), score: makePitcherScore(70), overallValue: 70, confidence: 0.5, eligibleSlots: ['SP'] },
-        { player: makePlayer('6', 'Bench SP', ['SP']), score: makePitcherScore(72), overallValue: 72, confidence: 0.5, eligibleSlots: ['SP'] },
+        { player: makePlayer('6', 'Bench SP', ['SP']), score: makePitcherScore(72), simulation: { expectedValue: 22.3 } as never, overallValue: 72, confidence: 0.5, eligibleSlots: ['SP'] },
       ],
       [{ slotId: '1B' }, { slotId: 'OF' }],
       [{ slotId: 'SP' }]
@@ -131,6 +131,7 @@ describe('generateAlternatives', () => {
     expect(alternatives[0]?.lineup.find((slot) => slot.position === '1B')?.player.id).toBe('4');
     expect(alternatives[1]?.lineup.find((slot) => slot.position === 'OF')?.player.id).toBe('5');
     expect(alternatives[2]?.lineup.find((slot) => slot.position === 'SP')?.player.id).toBe('6');
+    expect(alternatives[2]?.lineup.find((slot) => slot.position === 'SP')?.projectedPoints).toBe(22.3);
     for (const alternative of alternatives) {
       const ids = alternative.lineup.map((slot) => slot.player.id);
       expect(new Set(ids).size).toBe(ids.length);
