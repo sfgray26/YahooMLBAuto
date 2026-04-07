@@ -1,0 +1,186 @@
+name: Pipeline E2E
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Triggers
+#   • Manual (workflow_dispatch) – run on-demand from GitHub UI
+#   • Scheduled – nightly at 06:00 UTC for continuous verification
+#   • NOT triggered by pull_request (keep PR CI fast and secret-free)
+# ─────────────────────────────────────────────────────────────────────────────
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: >
+          Pipeline mode –
+          "full": ingestion + game-log backfill + all tests + full UAT;
+          "smoke": ingestion + backfill:small + core validations + uat:simple
+        required: false
+        default: full
+        type: choice
+        options:
+          - full
+          - smoke
+
+  schedule:
+    - cron: '0 6 * * *'   # 06:00 UTC every day
+
+# ─────────────────────────────────────────────────────────────────────────────
+# One run at a time; cancel stale in-progress runs
+# ─────────────────────────────────────────────────────────────────────────────
+concurrency:
+  group: pipeline-e2e
+  cancel-in-progress: true
+
+jobs:
+  pipeline:
+    name: Full E2E Ingestion Pipeline
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    # -------------------------------------------------------------------------
+    # Environment
+    #   • Infrastructure vars point at local docker-compose services (no secrets).
+    #   • External API credentials come from GitHub Actions Secrets.
+    #     See README.md → "Pipeline E2E – Required secrets" for details.
+    # -------------------------------------------------------------------------
+    env:
+      DATABASE_URL: postgresql://cbb:cbb@localhost:5432/cbb
+      REDIS_URL: redis://localhost:6379
+      BALLDONTLIE_API_KEY: ${{ secrets.BALLDONTLIE_API_KEY }}
+      MLB_API_KEY: ${{ secrets.MLB_API_KEY }}
+      LOG_LEVEL: info
+      WORKER_CONCURRENCY: 3
+      NODE_ENV: ci
+
+    steps:
+      # ── Source ──────────────────────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Toolchain ───────────────────────────────────────────────────────────
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.0.0
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # ── Log directory (created once, reused by all tee commands) ────────────
+      - name: Create log directory
+        run: mkdir -p /tmp/pipeline-logs
+
+      # ── Local services ───────────────────────────────────────────────────────
+      - name: Start postgres and redis
+        run: docker compose up -d postgres redis
+
+      - name: Wait for postgres
+        run: |
+          echo "Waiting for PostgreSQL to be ready..."
+          for i in $(seq 1 30); do
+            if docker compose exec -T postgres pg_isready -U cbb -q 2>/dev/null; then
+              echo "PostgreSQL is ready after ${i} attempt(s)"
+              break
+            fi
+            echo "  attempt $i/30 – sleeping 2s"
+            sleep 2
+          done
+
+      - name: Wait for redis
+        run: |
+          echo "Waiting for Redis to be ready..."
+          for i in $(seq 1 20); do
+            if docker compose exec -T redis redis-cli ping 2>/dev/null | grep -q PONG; then
+              echo "Redis is ready after ${i} attempt(s)"
+              break
+            fi
+            echo "  attempt $i/20 – sleeping 2s"
+            sleep 2
+          done
+
+      # ── Database migrations ──────────────────────────────────────────────────
+      - name: Run database migrations
+        working-directory: packages/infrastructure
+        run: pnpm prisma migrate deploy
+
+      # ── Ingestion ────────────────────────────────────────────────────────────
+      - name: Ingest game logs via BallDontLie (data:ingest)
+        run: pnpm data:ingest 2>&1 | tee /tmp/pipeline-logs/data-ingest.log
+
+      - name: Compute derived stats (data:compute)
+        run: pnpm data:compute 2>&1 | tee /tmp/pipeline-logs/data-compute.log
+
+      # Worker-level pipeline (ingest → derive → score)
+      - name: Worker ingest
+        working-directory: apps/worker
+        run: pnpm ingest 2>&1 | tee /tmp/pipeline-logs/worker-ingest.log
+        continue-on-error: true
+
+      - name: Worker derive
+        working-directory: apps/worker
+        run: pnpm derive 2>&1 | tee /tmp/pipeline-logs/worker-derive.log
+        continue-on-error: true
+
+      - name: Worker score
+        working-directory: apps/worker
+        run: pnpm score 2>&1 | tee /tmp/pipeline-logs/worker-score.log
+        continue-on-error: true
+
+      # ── Backfills ────────────────────────────────────────────────────────────
+      - name: Backfill small (always runs)
+        run: pnpm backfill:small 2>&1 | tee /tmp/pipeline-logs/backfill-small.log
+
+      - name: Backfill full game logs (full mode only)
+        if: ${{ github.event.inputs.mode != 'smoke' }}
+        run: pnpm backfill:game-logs 2>&1 | tee /tmp/pipeline-logs/backfill-game-logs.log
+        continue-on-error: true   # Heavy; don't block the rest of the pipeline
+
+      # ── Tests ─────────────────────────────────────────────────────────────────
+      - name: Test BallDontLie connectivity
+        run: pnpm test:balldontlie 2>&1 | tee /tmp/pipeline-logs/test-balldontlie.log
+
+      - name: Test derived computation
+        run: pnpm test:derived 2>&1 | tee /tmp/pipeline-logs/test-derived.log
+
+      - name: Test game log ingestion
+        run: pnpm test:game-logs 2>&1 | tee /tmp/pipeline-logs/test-game-logs.log
+        continue-on-error: true   # May have sparse data in a fresh environment
+
+      # ── Validations ──────────────────────────────────────────────────────────
+      - name: Validate scoring layer (pure-function, no DB required)
+        run: pnpm validate:scoring 2>&1 | tee /tmp/pipeline-logs/validate-scoring.log
+
+      - name: Validate derived layer (requires DB)
+        run: pnpm validate:derived 2>&1 | tee /tmp/pipeline-logs/validate-derived.log
+
+      # ── UAT ──────────────────────────────────────────────────────────────────
+      - name: UAT simple (smoke mode)
+        if: ${{ github.event.inputs.mode == 'smoke' }}
+        run: pnpm uat:simple 2>&1 | tee /tmp/pipeline-logs/uat.log
+        continue-on-error: true
+
+      - name: UAT full (full mode or scheduled)
+        if: ${{ github.event.inputs.mode != 'smoke' }}
+        run: pnpm uat 2>&1 | tee /tmp/pipeline-logs/uat.log
+        continue-on-error: true
+
+      # ── Artifacts ────────────────────────────────────────────────────────────
+      - name: Upload pipeline logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-e2e-logs-${{ github.run_number }}
+          path: /tmp/pipeline-logs/
+          retention-days: 14
+
+      # ── Teardown ─────────────────────────────────────────────────────────────
+      - name: Stop and remove local services
+        if: always()
+        run: docker compose down --volumes
