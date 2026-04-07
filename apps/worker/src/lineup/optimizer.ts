@@ -287,68 +287,51 @@ export function optimizeLineup(
   const hitters = players.filter(p => p.domain === 'hitting');
   const pitchers = players.filter(p => p.domain === 'pitching');
   
-  // Get slot definitions
-  const hittingSlots = teamState.lineupConfig.slots.filter(s => s.domain === 'hitting');
-  const pitchingSlots = teamState.lineupConfig.slots.filter(s => s.domain === 'pitching');
-  
-  // Phase 1: Fill scarce positions first (C, SS, 2B, 3B)
-  const scarcePositions = ['C', 'SS', '2B', '3B', '1B', 'MI', 'CI'];
-  for (const slot of hittingSlots) {
-    if (assignments.has(slot.slotId)) continue;
-    
-    const isScarce = slot.eligiblePositions.some(pos => scarcePositions.includes(pos));
-    if (!isScarce) continue;
-    
-    const bestPlayer = findBestPlayerForSlot(
-      hitters.filter(p => !usedPlayers.has(p.playerId)),
-      slot.slotId,
-      teamState,
-      cfg
-    );
-    
-    if (bestPlayer) {
-      const check = checkEligibility(bestPlayer, slot.slotId, teamState, cfg);
-      if (check.valid) {
-        assignPlayer(assignments, usedPlayers, bestPlayer, slot.slotId, teamState, cfg);
-        decisionTrace.push({
-          step: ++step,
-          action: 'fill',
-          slot: slot.slotId,
-          player: bestPlayer.name,
-          objectiveDelta: calculateObjective(bestPlayer, slot.slotId, teamState, cfg),
-          reasoning: `Scarce position fill (${slot.eligiblePositions.join('/')})`,
-        });
+  const allHittingSlots = teamState.lineupConfig.slots.filter(s => s.domain === 'hitting');
+  const allPitchingSlots = teamState.lineupConfig.slots.filter(s => s.domain === 'pitching');
+  const scarceSlotIds = new Set(['C', 'SS', '2B', '3B']);
+  const scarceHittingSlots = sortSlots(
+    allHittingSlots.filter((slot) => scarceSlotIds.has(slot.slotId))
+  );
+  const regularHittingSlots = sortSlots(
+    allHittingSlots.filter((slot) => !scarceSlotIds.has(slot.slotId) && slot.slotId !== 'UTIL')
+  );
+  const optionalHittingSlots = sortSlots(
+    allHittingSlots.filter((slot) => slot.slotId === 'UTIL')
+  );
+  const pitchingSlots = sortSlots(allPitchingSlots);
+
+  for (const phase of [
+    { slots: scarceHittingSlots, label: 'Scarce position fill' },
+    { slots: regularHittingSlots, label: 'Required position fill' },
+    { slots: optionalHittingSlots, label: 'Flexible position fill' },
+  ]) {
+    for (const slot of phase.slots) {
+      if (assignments.has(slot.slotId)) continue;
+
+      const bestPlayer = findBestPlayerForSlot(
+        hitters.filter((player) => !usedPlayers.has(player.playerId)),
+        slot.slotId,
+        teamState,
+        cfg
+      );
+
+      if (!bestPlayer) {
+        continue;
       }
+
+      assignPlayer(assignments, usedPlayers, bestPlayer, slot.slotId, teamState, cfg);
+      decisionTrace.push({
+        step: ++step,
+        action: 'fill',
+        slot: slot.slotId,
+        player: bestPlayer.name,
+        objectiveDelta: calculateObjective(bestPlayer, slot.slotId, teamState, cfg),
+        reasoning: `${phase.label} (${slot.eligiblePositions.join('/')})`,
+      });
     }
   }
-  
-  // Phase 2: Fill flexible positions (OF, UTIL)
-  for (const slot of hittingSlots) {
-    if (assignments.has(slot.slotId)) continue;
-    
-    const bestPlayer = findBestPlayerForSlot(
-      hitters.filter(p => !usedPlayers.has(p.playerId)),
-      slot.slotId,
-      teamState,
-      cfg
-    );
-    
-    if (bestPlayer) {
-      const check = checkEligibility(bestPlayer, slot.slotId, teamState, cfg);
-      if (check.valid) {
-        assignPlayer(assignments, usedPlayers, bestPlayer, slot.slotId, teamState, cfg);
-        decisionTrace.push({
-          step: ++step,
-          action: 'fill',
-          slot: slot.slotId,
-          player: bestPlayer.name,
-          objectiveDelta: calculateObjective(bestPlayer, slot.slotId, teamState, cfg),
-          reasoning: `Flexible position fill`,
-        });
-      }
-    }
-  }
-  
+
   // Phase 3: Fill pitching slots
   for (const slot of pitchingSlots) {
     const bestPlayer = findBestPlayerForSlot(
@@ -359,18 +342,15 @@ export function optimizeLineup(
     );
     
     if (bestPlayer) {
-      const check = checkEligibility(bestPlayer, slot.slotId, teamState, cfg);
-      if (check.valid) {
-        assignPlayer(assignments, usedPlayers, bestPlayer, slot.slotId, teamState, cfg);
-        decisionTrace.push({
-          step: ++step,
-          action: 'fill',
-          slot: slot.slotId,
-          player: bestPlayer.name,
-          objectiveDelta: calculateObjective(bestPlayer, slot.slotId, teamState, cfg),
-          reasoning: `Pitching slot fill`,
-        });
-      }
+      assignPlayer(assignments, usedPlayers, bestPlayer, slot.slotId, teamState, cfg);
+      decisionTrace.push({
+        step: ++step,
+        action: 'fill',
+        slot: slot.slotId,
+        player: bestPlayer.name,
+        objectiveDelta: calculateObjective(bestPlayer, slot.slotId, teamState, cfg),
+        reasoning: `Pitching slot fill`,
+      });
     }
   }
   
@@ -411,12 +391,16 @@ function findBestPlayerForSlot(
   teamState: TeamState,
   config: OptimizerConfig
 ): PlayerWithIntelligence | null {
-  if (availablePlayers.length === 0) return null;
+  const eligiblePlayers = availablePlayers.filter((player) =>
+    checkEligibility(player, slot, teamState, config).valid
+  );
+
+  if (eligiblePlayers.length === 0) return null;
   
-  let bestPlayer = availablePlayers[0];
+  let bestPlayer = eligiblePlayers[0];
   let bestObjective = calculateObjective(bestPlayer, slot, teamState, config);
   
-  for (const player of availablePlayers.slice(1)) {
+  for (const player of eligiblePlayers.slice(1)) {
     const objective = calculateObjective(player, slot, teamState, config);
     if (objective > bestObjective) {
       bestObjective = objective;
@@ -567,4 +551,28 @@ function buildExplanation(
     categoryNotes,
     riskNotes,
   };
+}
+
+function sortSlots<T extends { slotId: string }>(slots: T[]): T[] {
+  return [...slots].sort((left, right) => getSlotPriority(left.slotId) - getSlotPriority(right.slotId));
+}
+
+function getSlotPriority(slotId: string): number {
+  const priorities: Record<string, number> = {
+    C: 1,
+    SS: 2,
+    '2B': 3,
+    '3B': 4,
+    '1B': 5,
+    OF1: 6,
+    OF2: 7,
+    OF3: 8,
+    UTIL: 9,
+    SP1: 10,
+    SP2: 11,
+    RP1: 12,
+    RP2: 13,
+  };
+
+  return priorities[slotId] ?? 100;
 }
