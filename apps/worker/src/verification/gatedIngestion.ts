@@ -17,6 +17,7 @@ import {
   type PlayerIdentity,
 } from './playerIdentity.js';
 import { ingestGameLogs } from '../ingestion/gameLogs.js';
+import { ingestPitcherGameLogsForPlayers } from '../pitchers/gameLogs.js';
 
 export interface GatedIngestionResult {
   success: boolean;
@@ -62,8 +63,8 @@ export async function ingestPlayer(
     const identity = verification.identity;
     console.log(`[${traceId}] GATEKEEPER PASSED: ${identity.fullName}`);
 
-    if (identity.role !== 'hitter') {
-      const error = `Player ${identity.fullName} (${mlbamId}) is classified as ${identity.role}; the current game-log ingestion path only supports hitters.`;
+    if (identity.role !== 'hitter' && identity.role !== 'pitcher') {
+      const error = `Player ${identity.fullName} (${mlbamId}) is classified as ${identity.role}; gated ingestion only supports hitters and pitchers.`;
       console.error(`[${traceId}] ROLE GATE REJECTED: ${error}`);
       return {
         success: false,
@@ -84,15 +85,17 @@ export async function ingestPlayer(
     // STEP 3: Now safe to ingest game logs
     // =========================================================================
     console.log(`[${traceId}] STEP 3: Ingesting game logs...`);
-    const ingestionResult = await ingestGameLogs(mlbamId, season);
+    const gamesIngested = identity.role === 'pitcher'
+      ? await ingestVerifiedPitcher(mlbamId, season, traceId)
+      : await ingestVerifiedHitter(mlbamId, season);
 
-    console.log(`[${traceId}] SUCCESS: Ingested ${ingestionResult.totalGames} games for ${identity.fullName}`);
+    console.log(`[${traceId}] SUCCESS: Ingested ${gamesIngested} games for ${identity.fullName}`);
 
     return {
       success: true,
       mlbamId,
       identity,
-      gamesIngested: ingestionResult.totalGames,
+      gamesIngested,
       traceId,
     };
 
@@ -138,4 +141,25 @@ export async function ingestPlayerBatch(
   console.log(`[${traceId}] Batch complete: ${successCount}/${mlbamIds.length} succeeded`);
 
   return results;
+}
+
+async function ingestVerifiedHitter(mlbamId: string, season: number): Promise<number> {
+  const ingestionResult = await ingestGameLogs(mlbamId, season);
+  return ingestionResult.totalGames;
+}
+
+async function ingestVerifiedPitcher(
+  mlbamId: string,
+  season: number
+): Promise<number> {
+  const result = await ingestPitcherGameLogsForPlayers(
+    [{ playerId: `mlbam:${mlbamId}`, mlbamId }],
+    season
+  );
+
+  if (result.errors.length > 0) {
+    throw new Error(result.errors.join('; '));
+  }
+
+  return result.totalGames;
 }

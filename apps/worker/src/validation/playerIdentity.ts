@@ -7,6 +7,14 @@
 
 const MLB_STATS_BASE_URL = 'https://statsapi.mlb.com/api/v1';
 
+function normalizeName(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .trim()
+    .toLowerCase();
+}
+
 export interface PlayerIdentity {
   mlbamId: string;
   fullName: string;
@@ -84,8 +92,8 @@ export async function validatePlayerIdentity(
     };
 
     // Name matching - case insensitive, trim whitespace
-    const normalizedExpected = expectedName.trim().toLowerCase();
-    const normalizedActual = actualIdentity.fullName.trim().toLowerCase();
+    const normalizedExpected = normalizeName(expectedName);
+    const normalizedActual = normalizeName(actualIdentity.fullName);
 
     if (normalizedActual !== normalizedExpected) {
       errors.push(
@@ -196,8 +204,8 @@ export async function suggestCorrectId(
   }
 
   // Confidence based on exact name match
-  const normalizedExpected = expectedName.trim().toLowerCase();
-  const normalizedActual = lookup.fullName.trim().toLowerCase();
+  const normalizedExpected = normalizeName(expectedName);
+  const normalizedActual = normalizeName(lookup.fullName);
 
   let confidence: 'high' | 'medium' | 'low' = 'medium';
 

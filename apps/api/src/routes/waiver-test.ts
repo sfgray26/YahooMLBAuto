@@ -15,7 +15,7 @@ const YOUR_ROSTER: RosterSlot[] = [
   { player: { id: uuidv4(), mlbamId: '686469', name: 'Vinnie Pasquantino', team: 'KC', position: ['1B'] }, position: '1B', isLocked: false },
   { player: { id: uuidv4(), mlbamId: '543760', name: 'Marcus Semien', team: 'TEX', position: ['2B'] }, position: '2B', isLocked: false },
   { player: { id: uuidv4(), mlbamId: '656305', name: 'Matt Chapman', team: 'SF', position: ['3B'] }, position: '3B', isLocked: false },
-  { player: { id: uuidv4(), mlbamId: '672666', name: 'Geraldo Perdomo', team: 'ARI', position: ['SS'] }, position: 'SS', isLocked: false },
+  { player: { id: uuidv4(), mlbamId: '672695', name: 'Geraldo Perdomo', team: 'ARI', position: ['SS'] }, position: 'SS', isLocked: false },
   { player: { id: uuidv4(), mlbamId: '691023', name: 'Jordan Walker', team: 'STL', position: ['LF', 'RF'] }, position: 'LF', isLocked: false },
   { player: { id: uuidv4(), mlbamId: '621439', name: 'Byron Buxton', team: 'MIN', position: ['CF'] }, position: 'CF', isLocked: false },
   { player: { id: uuidv4(), mlbamId: '665742', name: 'Juan Soto', team: 'NYM', position: ['LF', 'RF'] }, position: 'RF', isLocked: false },
@@ -24,8 +24,8 @@ const YOUR_ROSTER: RosterSlot[] = [
   // Bench Hitters
   { player: { id: uuidv4(), mlbamId: '624413', name: 'Pete Alonso', team: 'NYM', position: ['1B'] }, position: 'BN', isLocked: false },
   { player: { id: uuidv4(), mlbamId: '607043', name: 'Brandon Nimmo', team: 'NYM', position: ['LF', 'CF', 'RF'] }, position: 'BN', isLocked: false },
-  { player: { id: uuidv4(), mlbamId: '691738', name: 'Pete Crow-Armstrong', team: 'CHC', position: ['CF'] }, position: 'BN', isLocked: false },
-  { player: { id: uuidv4(), mlbamId: '680694', name: 'Steven Kwan', team: 'CLE', position: ['LF'] }, position: 'BN', isLocked: false },
+  { player: { id: uuidv4(), mlbamId: '691718', name: 'Pete Crow-Armstrong', team: 'CHC', position: ['CF'] }, position: 'BN', isLocked: false },
+  { player: { id: uuidv4(), mlbamId: '680757', name: 'Steven Kwan', team: 'CLE', position: ['LF'] }, position: 'BN', isLocked: false },
   
   // IL Hitters
   { player: { id: uuidv4(), mlbamId: '676059', name: 'Jordan Westburg', team: 'BAL', position: ['2B', '3B'] }, position: 'IL', isLocked: true },
@@ -36,9 +36,9 @@ const YOUR_ROSTER: RosterSlot[] = [
   { player: { id: uuidv4(), mlbamId: '650911', name: 'Cristopher Sánchez', team: 'PHI', position: ['SP'] }, position: 'SP', isLocked: false },
   { player: { id: uuidv4(), mlbamId: '621242', name: 'Edwin Díaz', team: 'NYM', position: ['RP'] }, position: 'RP', isLocked: false },
   { player: { id: uuidv4(), mlbamId: '605447', name: 'Jordan Romano', team: 'TOR', position: ['RP'] }, position: 'RP', isLocked: false },
-  { player: { id: uuidv4(), mlbamId: '682126', name: 'Eury Pérez', team: 'MIA', position: ['SP'] }, position: 'P', isLocked: false },
-  { player: { id: uuidv4(), mlbamId: '669062', name: 'Gavin Williams', team: 'CLE', position: ['SP'] }, position: 'P', isLocked: false },
-  { player: { id: uuidv4(), mlbamId: '684858', name: 'Shota Imanaga', team: 'CHC', position: ['SP'] }, position: 'P', isLocked: false },
+  { player: { id: uuidv4(), mlbamId: '691587', name: 'Eury Pérez', team: 'MIA', position: ['SP'] }, position: 'P', isLocked: false },
+  { player: { id: uuidv4(), mlbamId: '668909', name: 'Gavin Williams', team: 'CLE', position: ['SP'] }, position: 'P', isLocked: false },
+  { player: { id: uuidv4(), mlbamId: '684007', name: 'Shota Imanaga', team: 'CHC', position: ['SP'] }, position: 'P', isLocked: false },
   
   // IL Pitchers
   { player: { id: uuidv4(), mlbamId: '542881', name: 'Jason Adam', team: 'SD', position: ['RP'] }, position: 'IL', isLocked: true },

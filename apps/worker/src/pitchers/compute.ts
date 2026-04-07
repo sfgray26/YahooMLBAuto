@@ -332,7 +332,7 @@ function determineRole(
   let isCloser = false;
   let holdsEligible = false;
 
-  if (gamesSaved >= 5 || context.isCloser === true) {
+  if (gamesSaved >= 2 || context.isCloser === true) {
     currentRole = 'CL';
     isCloser = true;
   } else if (appearances > 0 && inningsPerApp < 2.0) {
