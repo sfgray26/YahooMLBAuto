@@ -157,6 +157,41 @@ WORKER_CONCURRENCY=5
 ALLOW_MOCK_VALUATIONS=false
 ```
 
+## CI
+
+GitHub Actions runs automatically on every push to `master` and on every pull request.
+
+### What the CI job checks
+
+| Step | Command | Notes |
+|------|---------|-------|
+| Lint | `pnpm lint` | ESLint across all workspaces |
+| Typecheck | `pnpm typecheck` | TypeScript strict check across all workspaces |
+| Unit tests | `pnpm test` | Vitest via Turborepo |
+| Scoring validation | `pnpm validate:scoring` | Pure-function validation, always runs |
+| Derived validation | `pnpm validate:derived` | Requires `DATABASE_URL` secret; skipped in CI if absent |
+
+### Running CI checks locally
+
+```bash
+# Install dependencies
+pnpm install
+
+# Quality gates (same as CI)
+pnpm lint
+pnpm typecheck
+pnpm test
+
+# Data-pipeline validation (no DB required)
+pnpm validate:scoring
+
+# Full derived-layer validation (requires a running PostgreSQL instance)
+DATABASE_URL=postgresql://user:pass@localhost:5432/dbname pnpm validate:derived
+```
+
+To enable derived-layer validation in GitHub Actions, add `DATABASE_URL` as a
+[repository secret](https://docs.github.com/en/actions/security-guides/encrypted-secrets).
+
 ## License
 
 MIT
