@@ -286,8 +286,7 @@ function computeRateFeatures(last30: RawPitcherStats[]): PitcherDerivedFeatures[
     }
   );
 
-  // Need minimum innings to compute rates
-  if (totals.innings < 5) {
+  if (last30.length === 0) {
     return {
       eraLast30: null,
       whipLast30: null,
@@ -304,12 +303,6 @@ function computeRateFeatures(last30: RawPitcherStats[]): PitcherDerivedFeatures[
     };
   }
 
-  // ERA (earned runs per 9 innings)
-  const era = (totals.earnedRuns / totals.innings) * 9;
-
-  // WHIP (walks + hits per inning)
-  const whip = (totals.walks + totals.hits) / totals.innings;
-
   // K% and BB%
   const kRate = totals.battersFaced > 0 ? totals.strikeouts / totals.battersFaced : null;
   const bbRate = totals.battersFaced > 0 ? totals.walks / totals.battersFaced : null;
@@ -325,19 +318,21 @@ function computeRateFeatures(last30: RawPitcherStats[]): PitcherDerivedFeatures[
     ? totals.firstPitchStrikes / totals.battersFaced
     : null;
 
-  // FIP (simplified): (13*HR + 3*BB - 2*K) / IP + constant (~3.1)
-  const fip = ((13 * totals.homeRuns + 3 * totals.walks - 2 * totals.strikeouts) / totals.innings) + 3.1;
-
-  // xFIP would need league average HR/FB rate - using FIP as proxy
-  const xfip = fip;
-
   // Ground ball ratio
   const hasBattedBallData = last30.some((s) => s.groundBalls !== null || s.flyBalls !== null);
   const totalBallsInPlay = totals.groundBalls + totals.flyBalls;
   const gbRatio = hasBattedBallData && totalBallsInPlay > 0 ? totals.groundBalls / totalBallsInPlay : null;
 
-  // HR/9
-  const hrPer9 = (totals.homeRuns / totals.innings) * 9;
+  const hasInnings = totals.innings > 0;
+
+  // Inning-based rates are still factual with small samples; reliability is captured separately.
+  const era = hasInnings ? (totals.earnedRuns / totals.innings) * 9 : null;
+  const whip = hasInnings ? (totals.walks + totals.hits) / totals.innings : null;
+  const fip = hasInnings
+    ? ((13 * totals.homeRuns + 3 * totals.walks - 2 * totals.strikeouts) / totals.innings) + 3.1
+    : null;
+  const xfip = fip;
+  const hrPer9 = hasInnings ? (totals.homeRuns / totals.innings) * 9 : null;
 
   return {
     eraLast30: era,

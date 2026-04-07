@@ -139,6 +139,122 @@ describe('pitcher pipeline helpers', () => {
     expect(derived.rates.gbRatio).toBeNull();
   });
 
+  it('preserves usable reliever rates in low-inning samples instead of flattening to null', () => {
+    const relieverWindow: RawPitcherStats[] = [
+      {
+        statDate: new Date('2025-08-09T00:00:00.000Z'),
+        gamesPlayed: 1,
+        gamesStarted: 0,
+        gamesFinished: 1,
+        gamesSaved: 0,
+        holds: 1,
+        inningsPitched: 1,
+        battersFaced: 4,
+        hitsAllowed: 0,
+        runsAllowed: 0,
+        earnedRuns: 0,
+        walks: 0,
+        strikeouts: 2,
+        homeRunsAllowed: 0,
+        hitByPitch: 0,
+        pitches: 14,
+        strikes: 10,
+        firstPitchStrikes: 3,
+        swingingStrikes: 2,
+        groundBalls: 1,
+        flyBalls: 1,
+      },
+      {
+        statDate: new Date('2025-08-07T00:00:00.000Z'),
+        gamesPlayed: 1,
+        gamesStarted: 0,
+        gamesFinished: 0,
+        gamesSaved: 0,
+        holds: 1,
+        inningsPitched: 1,
+        battersFaced: 5,
+        hitsAllowed: 1,
+        runsAllowed: 0,
+        earnedRuns: 0,
+        walks: 1,
+        strikeouts: 2,
+        homeRunsAllowed: 0,
+        hitByPitch: 0,
+        pitches: 18,
+        strikes: 11,
+        firstPitchStrikes: 4,
+        swingingStrikes: 1,
+        groundBalls: 2,
+        flyBalls: 1,
+      },
+      {
+        statDate: new Date('2025-08-05T00:00:00.000Z'),
+        gamesPlayed: 1,
+        gamesStarted: 0,
+        gamesFinished: 1,
+        gamesSaved: 0,
+        holds: 0,
+        inningsPitched: 1,
+        battersFaced: 3,
+        hitsAllowed: 0,
+        runsAllowed: 0,
+        earnedRuns: 0,
+        walks: 0,
+        strikeouts: 1,
+        homeRunsAllowed: 0,
+        hitByPitch: 0,
+        pitches: 11,
+        strikes: 8,
+        firstPitchStrikes: 2,
+        swingingStrikes: 1,
+        groundBalls: 1,
+        flyBalls: 0,
+      },
+      {
+        statDate: new Date('2025-08-02T00:00:00.000Z'),
+        gamesPlayed: 1,
+        gamesStarted: 0,
+        gamesFinished: 1,
+        gamesSaved: 0,
+        holds: 0,
+        inningsPitched: 0.2,
+        battersFaced: 4,
+        hitsAllowed: 1,
+        runsAllowed: 1,
+        earnedRuns: 1,
+        walks: 0,
+        strikeouts: 1,
+        homeRunsAllowed: 0,
+        hitByPitch: 0,
+        pitches: 13,
+        strikes: 8,
+        firstPitchStrikes: 2,
+        swingingStrikes: 1,
+        groundBalls: 0,
+        flyBalls: 1,
+      },
+    ];
+
+    const derived = computePitcherDerivedFeatures(
+      'reliever-1',
+      '676254',
+      2025,
+      relieverWindow,
+      referenceDate
+    );
+
+    expect(derived.volume.inningsPitchedLast30).toBeGreaterThan(0);
+    expect(derived.rates.strikeoutRateLast30).not.toBeNull();
+    expect(derived.rates.walkRateLast30).not.toBeNull();
+    expect(derived.rates.eraLast30).not.toBeNull();
+    expect(derived.rates.whipLast30).not.toBeNull();
+
+    const score = scorePitcher(derived);
+    expect(score.components.command).not.toBe(50);
+    expect(score.components.stuff).not.toBe(50);
+    expect(score.components.results).not.toBe(50);
+  });
+
   it('classifies closer roles correctly and produces deterministic simulations for the same seed', () => {
     const closerFeatures = makeFeatures({
       volume: {
@@ -277,5 +393,6 @@ describe('pitcher pipeline helpers', () => {
 
     expect(simulation.confidenceImpact).toBe('decrease');
     expect(simulation.confidenceDelta).toBeLessThan(0);
+    expect(simulation.simulationNotes).toContain('Confidence reduced due to low sample reliability');
   });
 });

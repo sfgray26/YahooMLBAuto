@@ -531,6 +531,8 @@ export function simulatePitcherOutcome(
   config: PitcherSimulationConfig = { runs: 10_000, horizon: 'start' }
 ): PitcherOutcomeDistribution {
   const rng = createRNG(config.randomSeed ?? 12345);
+  const simulatedOutcomeLabel =
+    config.horizon === 'week' ? 'week' : score.role.currentRole === 'SP' ? 'start' : 'appearance';
   
   // Pre-compute PA outcome probabilities
   const probs = getPAOutcomeProbabilities(features);
@@ -621,25 +623,29 @@ export function simulatePitcherOutcome(
   // Confidence impact
   let confidenceImpact: 'increase' | 'decrease' | 'neutral' = 'neutral';
   let confidenceDelta = 0;
+  let confidenceReason: string | null = null;
   
   if (blowUpRisk > 0.25 && p10 < 0) {
     // High blow-up risk with negative floor = decrease confidence
     confidenceImpact = 'decrease';
     confidenceDelta = -0.15;
+    confidenceReason = 'blow-up risk';
   } else if (qualityStartRate > 0.50 && blowUpRisk < 0.15) {
     // Reliable QS pitcher = increase confidence
     confidenceImpact = 'increase';
     confidenceDelta = 0.08;
+    confidenceReason = 'reliability';
   }
 
   if (score.reliability.sampleSize === 'insufficient' || !score.reliability.statsReliable) {
     confidenceImpact = 'decrease';
     confidenceDelta = Math.min(confidenceDelta, -0.08);
+    confidenceReason = 'low sample reliability';
   }
   
   // Build notes
   const notes: string[] = [];
-  notes.push(`Simulated ${config.runs.toLocaleString()} ${config.horizon} outcomes`);
+  notes.push(`Simulated ${config.runs.toLocaleString()} ${simulatedOutcomeLabel} outcomes`);
   notes.push(`Expected: ${expectedValue.toFixed(1)} pts, StdDev: ${standardDeviation.toFixed(1)}`);
   notes.push(`Floor (p10): ${p10.toFixed(1)}, Ceiling (p90): ${p90.toFixed(1)}`);
   notes.push(`QS Rate: ${(qualityStartRate * 100).toFixed(0)}%, Blow-up Risk: ${(blowUpRisk * 100).toFixed(0)}%`);
@@ -650,7 +656,7 @@ export function simulatePitcherOutcome(
   }
   
   if (confidenceImpact !== 'neutral') {
-    notes.push(`Confidence ${confidenceImpact === 'increase' ? 'boosted' : 'reduced'} due to ${confidenceImpact === 'increase' ? 'reliability' : 'blow-up risk'}`);
+    notes.push(`Confidence ${confidenceImpact === 'increase' ? 'boosted' : 'reduced'} due to ${confidenceReason ?? 'uncertainty'}`);
   }
   
   return {
