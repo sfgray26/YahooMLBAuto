@@ -32,7 +32,10 @@ export interface GatedIngestionResult {
  *
  * @throws Error if verification fails (hard failure)
  */
-export async function ingestPlayer(mlbamId: string): Promise<GatedIngestionResult> {
+export async function ingestPlayer(
+  mlbamId: string,
+  season: number = new Date().getFullYear()
+): Promise<GatedIngestionResult> {
   const traceId = `ingest-${mlbamId}-${Date.now()}`;
   console.log(`[${traceId}] Starting gated ingestion for: ${mlbamId}`);
 
@@ -81,7 +84,7 @@ export async function ingestPlayer(mlbamId: string): Promise<GatedIngestionResul
     // STEP 3: Now safe to ingest game logs
     // =========================================================================
     console.log(`[${traceId}] STEP 3: Ingesting game logs...`);
-    const ingestionResult = await ingestGameLogs(mlbamId, new Date().getFullYear());
+    const ingestionResult = await ingestGameLogs(mlbamId, season);
 
     console.log(`[${traceId}] SUCCESS: Ingested ${ingestionResult.totalGames} games for ${identity.fullName}`);
 
@@ -114,7 +117,8 @@ export async function ingestPlayer(mlbamId: string): Promise<GatedIngestionResul
  * But each player MUST pass verification.
  */
 export async function ingestPlayerBatch(
-  mlbamIds: string[]
+  mlbamIds: string[],
+  season: number = new Date().getFullYear()
 ): Promise<GatedIngestionResult[]> {
   const traceId = `batch-${Date.now()}`;
   console.log(`[${traceId}] Starting batch ingestion for ${mlbamIds.length} players`);
@@ -122,7 +126,7 @@ export async function ingestPlayerBatch(
   const results: GatedIngestionResult[] = [];
 
   for (const mlbamId of mlbamIds) {
-    const result = await ingestPlayer(mlbamId);
+    const result = await ingestPlayer(mlbamId, season);
     results.push(result);
 
     if (!result.success) {

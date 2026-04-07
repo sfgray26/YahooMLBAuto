@@ -203,6 +203,7 @@ export async function storeGameLogs(
           },
         },
         update: {
+          playerId,
           gamesPlayed: entry.stats.gamesPlayed,
           atBats: entry.stats.atBats,
           runs: entry.stats.runs,
@@ -415,9 +416,8 @@ export async function ingestGameLogs(
     };
   }
 
-  // Create a temporary player ID for storage
-  const tempPlayerId = `temp-${mlbamId}`;
-  const result = await storeGameLogs(tempPlayerId, entries, traceId);
+  const canonicalPlayerId = `mlbam:${mlbamId}`;
+  const result = await storeGameLogs(canonicalPlayerId, entries, traceId);
   
   return {
     success: result.errors.length === 0,

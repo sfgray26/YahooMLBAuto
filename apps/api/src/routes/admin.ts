@@ -141,15 +141,27 @@ export async function adminRoutes(
         playerDailyStatsCount,
         rawIngestionLogCount,
         playerDerivedStatsCount,
+        playerDerivedPlayers,
         pitcherGameLogCount,
         pitcherDerivedStatsCount,
+        pitcherDerivedPlayers,
         persistedDecisionCount,
       ] = await Promise.all([
         prisma.playerDailyStats.count({ where: { season: targetSeason } }),
         prisma.rawIngestionLog.count({ where: { season: targetSeason } }),
         prisma.playerDerivedStats.count({ where: { season: targetSeason } }),
+        prisma.playerDerivedStats.findMany({
+          where: { season: targetSeason },
+          distinct: ['playerMlbamId'],
+          select: { playerMlbamId: true },
+        }),
         prisma.pitcherGameLog.count({ where: { season: targetSeason } }),
         prisma.pitcherDerivedStats.count({ where: { season: targetSeason } }),
+        prisma.pitcherDerivedStats.findMany({
+          where: { season: targetSeason },
+          distinct: ['playerMlbamId'],
+          select: { playerMlbamId: true },
+        }),
         prisma.persistedDecision.count(),
       ]);
       
@@ -176,8 +188,10 @@ export async function adminRoutes(
           playerDailyStats: playerDailyStatsCount,
           rawIngestionLogs: rawIngestionLogCount,
           playerDerivedStats: playerDerivedStatsCount,
+          playerDerivedDistinctPlayers: playerDerivedPlayers.length,
           pitcherGameLogs: pitcherGameLogCount,
           pitcherDerivedStats: pitcherDerivedStatsCount,
+          pitcherDerivedDistinctPlayers: pitcherDerivedPlayers.length,
           persistedDecisions: persistedDecisionCount,
         },
         latestIngestion: latestIngestion ? {
@@ -937,7 +951,7 @@ export async function adminRoutes(
     
     try {
       const { ingestPlayer } = await import('@cbb/worker');
-      const result = await ingestPlayer(mlbamId);
+      const result = await ingestPlayer(mlbamId, targetSeason);
       
       if (!result.success) {
         return reply.status(400).send({

@@ -661,6 +661,7 @@ export async function batchComputeDerivedStatsFromGameLogs(
           },
         },
         update: {
+          playerId,
           ...stats,
           computedAt: new Date(),
           traceId,
