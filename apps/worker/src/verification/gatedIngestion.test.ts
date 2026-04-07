@@ -78,8 +78,7 @@ describe('ingestPlayer', () => {
     expect(result.gamesIngested).toBe(3);
     expect(ingestPitcherGameLogsForPlayersMock).toHaveBeenCalledWith(
       [{ playerId: 'mlbam:605447', mlbamId: '605447' }],
-      2026,
-      expect.stringContaining('ingest-605447-')
+      2026
     );
     expect(ingestGameLogsMock).not.toHaveBeenCalled();
   });
