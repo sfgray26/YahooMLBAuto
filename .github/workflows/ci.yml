@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+jobs:
+  ci:
+    name: Lint / Typecheck / Test / Validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.0.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      # validate:scoring is a pure-function validation with no external dependencies.
+      - name: Validate scoring layer
+        run: pnpm validate:scoring
+
+      # validate:derived requires a live PostgreSQL DATABASE_URL.
+      # In CI this step is skipped unless DATABASE_URL is provided as a secret.
+      - name: Validate derived layer
+        if: ${{ env.DATABASE_URL != '' }}
+        run: pnpm validate:derived
