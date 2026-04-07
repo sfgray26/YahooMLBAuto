@@ -25,7 +25,7 @@ export interface DerivedRunStats {
   errors: string[];
 }
 
-/** Minimal derived stat shape needed for rate validation. */
+/** Minimal derived stat shape needed for hitter rate validation. */
 export interface DerivedRateSample {
   playerMlbamId: string;
   battingAverageLast30: number | null;
@@ -41,6 +41,25 @@ export interface DerivedRateSample {
   plateAppearancesLast7: number;
   plateAppearancesLast14: number;
   plateAppearancesLast30: number;
+}
+
+/** Minimal pitcher derived stat shape needed for rate validation. */
+export interface PitcherDerivedRateSample {
+  playerMlbamId: string;
+  eraLast30: number | null;
+  whipLast30: number | null;
+  strikeoutRateLast30: number | null;
+  walkRateLast30: number | null;
+  kToBBRatioLast30: number | null;
+  appearancesLast7: number;
+  appearancesLast14: number;
+  appearancesLast30: number;
+  inningsPitchedLast7: number;
+  inningsPitchedLast14: number;
+  inningsPitchedLast30: number;
+  battersFacedLast7: number;
+  battersFacedLast14: number;
+  battersFacedLast30: number;
 }
 
 export interface PipelineStageResult {
@@ -259,6 +278,122 @@ export function validateDerivedRates(
   };
 }
 
+/**
+ * Validate a sample of pitcher derived rate stats for sanity.
+ *
+ * Checks:
+ * - Rate stats are within valid numeric ranges (ERA ≥ 0, rates 0–1, etc.)
+ * - K/BB ratio is consistent with strikeout and walk rates
+ * - Window monotonicity: 30d >= 14d >= 7d for appearances, IP, and batters faced
+ *
+ * Returns a stage result summarising any invalid records found.
+ */
+export function validatePitcherDerivedRates(
+  samples: PitcherDerivedRateSample[]
+): PipelineStageResult {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  if (samples.length === 0) {
+    warnings.push('No pitcher derived stats samples provided for rate validation');
+    return { stage: 'pitcher_derived_rates', valid: true, warnings, errors };
+  }
+
+  let rateOutOfRange = 0;
+  let formulaMismatch = 0;
+  let windowNotMonotonic = 0;
+
+  for (const s of samples) {
+    const id = s.playerMlbamId;
+
+    // Rate range checks (when non-null)
+    const rateFields: Array<[string, number | null, number, number]> = [
+      ['eraLast30', s.eraLast30, 0, 20],
+      ['whipLast30', s.whipLast30, 0, 6],
+      ['strikeoutRateLast30', s.strikeoutRateLast30, 0, 1],
+      ['walkRateLast30', s.walkRateLast30, 0, 1],
+      // K/BB ratio: capped at 20 to catch obvious data errors while accommodating
+      // elite pitchers who rarely walk batters (historical record is ~15 for starters).
+      ['kToBBRatioLast30', s.kToBBRatioLast30, 0, 20],
+    ];
+
+    for (const [field, value, min, max] of rateFields) {
+      if (value !== null && (value < min || value > max)) {
+        errors.push(`Pitcher ${id}: ${field} = ${value} is out of range [${min}, ${max}]`);
+        rateOutOfRange++;
+      }
+    }
+
+    // K/BB ratio should equal strikeoutRate / walkRate (when both are non-null and walkRate > 0).
+    // Tolerance of 0.05 accounts for floating-point rounding in upstream calculations
+    // (e.g. rates stored as rounded percentages before computing the ratio).
+    if (
+      s.kToBBRatioLast30 !== null &&
+      s.strikeoutRateLast30 !== null &&
+      s.walkRateLast30 !== null &&
+      s.walkRateLast30 > 0
+    ) {
+      const expectedKBB = s.strikeoutRateLast30 / s.walkRateLast30;
+      if (Math.abs(s.kToBBRatioLast30 - expectedKBB) > 0.05) {
+        errors.push(
+          `Pitcher ${id}: K/BB (${s.kToBBRatioLast30.toFixed(2)}) ≠ K% / BB% (${expectedKBB.toFixed(2)})`
+        );
+        formulaMismatch++;
+      }
+    }
+
+    // Window monotonicity for appearances
+    if (
+      s.appearancesLast30 < s.appearancesLast14 ||
+      s.appearancesLast14 < s.appearancesLast7
+    ) {
+      errors.push(
+        `Pitcher ${id}: non-monotonic appearance windows: 30d=${s.appearancesLast30}, 14d=${s.appearancesLast14}, 7d=${s.appearancesLast7}`
+      );
+      windowNotMonotonic++;
+    }
+
+    // Window monotonicity for innings pitched
+    if (
+      s.inningsPitchedLast30 < s.inningsPitchedLast14 ||
+      s.inningsPitchedLast14 < s.inningsPitchedLast7
+    ) {
+      errors.push(
+        `Pitcher ${id}: non-monotonic IP windows: 30d=${s.inningsPitchedLast30}, 14d=${s.inningsPitchedLast14}, 7d=${s.inningsPitchedLast7}`
+      );
+      windowNotMonotonic++;
+    }
+
+    // Window monotonicity for batters faced
+    if (
+      s.battersFacedLast30 < s.battersFacedLast14 ||
+      s.battersFacedLast14 < s.battersFacedLast7
+    ) {
+      errors.push(
+        `Pitcher ${id}: non-monotonic BF windows: 30d=${s.battersFacedLast30}, 14d=${s.battersFacedLast14}, 7d=${s.battersFacedLast7}`
+      );
+      windowNotMonotonic++;
+    }
+  }
+
+  if (rateOutOfRange > 0) {
+    warnings.push(`${rateOutOfRange} pitcher rate-out-of-range issue(s) detected`);
+  }
+  if (formulaMismatch > 0) {
+    warnings.push(`${formulaMismatch} pitcher K/BB formula mismatch(es) detected`);
+  }
+  if (windowNotMonotonic > 0) {
+    warnings.push(`${windowNotMonotonic} pitcher window monotonicity violation(s) detected`);
+  }
+
+  return {
+    stage: 'pitcher_derived_rates',
+    valid: errors.length === 0,
+    warnings,
+    errors,
+  };
+}
+
 // ============================================================================
 // Top-Level Orchestrator
 // ============================================================================
@@ -269,6 +404,7 @@ export interface PipelineRunInputs {
   hitterDerived: DerivedRunStats;
   pitcherDerived: DerivedRunStats;
   derivedSamples?: DerivedRateSample[];
+  pitcherDerivedSamples?: PitcherDerivedRateSample[];
 }
 
 /**
@@ -287,6 +423,10 @@ export function validatePipelineRun(inputs: PipelineRunInputs): PipelineValidati
 
   if (inputs.derivedSamples && inputs.derivedSamples.length > 0) {
     stages.push(validateDerivedRates(inputs.derivedSamples));
+  }
+
+  if (inputs.pitcherDerivedSamples && inputs.pitcherDerivedSamples.length > 0) {
+    stages.push(validatePitcherDerivedRates(inputs.pitcherDerivedSamples));
   }
 
   const valid = stages.every((s) => s.valid);

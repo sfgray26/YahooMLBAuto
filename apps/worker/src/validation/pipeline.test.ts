@@ -3,8 +3,10 @@ import {
   validateIngestionResult,
   validateDerivedStatsResult,
   validateDerivedRates,
+  validatePitcherDerivedRates,
   validatePipelineRun,
   type DerivedRateSample,
+  type PitcherDerivedRateSample,
   type IngestionRunStats,
   type DerivedRunStats,
 } from './pipeline.js';
@@ -258,5 +260,193 @@ describe('validatePipelineRun', () => {
     const failedStage = result.stages.find((s) => s.stage === 'hitter_derived_stats');
     expect(failedStage?.valid).toBe(false);
     expect(failedStage?.errors).toContain('No derived stats were computed');
+  });
+
+  it('includes pitcher derived rate validation when pitcher samples are provided', () => {
+    const goodPitcherSample: PitcherDerivedRateSample = {
+      playerMlbamId: '669203',
+      eraLast30: 2.5,
+      whipLast30: 1.0,
+      strikeoutRateLast30: 0.30,
+      walkRateLast30: 0.07,
+      kToBBRatioLast30: 0.30 / 0.07,
+      appearancesLast7: 1,
+      appearancesLast14: 2,
+      appearancesLast30: 4,
+      inningsPitchedLast7: 6,
+      inningsPitchedLast14: 12,
+      inningsPitchedLast30: 25,
+      battersFacedLast7: 22,
+      battersFacedLast14: 44,
+      battersFacedLast30: 92,
+    };
+    const result = validatePipelineRun({ ...goodRun, pitcherDerivedSamples: [goodPitcherSample] });
+    const pitcherRateStage = result.stages.find((s) => s.stage === 'pitcher_derived_rates');
+    expect(pitcherRateStage).toBeDefined();
+    expect(pitcherRateStage!.valid).toBe(true);
+  });
+
+  it('skips pitcher derived rate validation when no pitcher samples are provided', () => {
+    const result = validatePipelineRun({ ...goodRun });
+    const pitcherRateStage = result.stages.find((s) => s.stage === 'pitcher_derived_rates');
+    expect(pitcherRateStage).toBeUndefined();
+  });
+});
+
+// ============================================================================
+// validatePitcherDerivedRates
+// ============================================================================
+
+const basePitcherSample: PitcherDerivedRateSample = {
+  playerMlbamId: '669203',
+  eraLast30: 2.85,
+  whipLast30: 1.05,
+  strikeoutRateLast30: 0.285,
+  walkRateLast30: 0.065,
+  kToBBRatioLast30: 0.285 / 0.065,
+  appearancesLast7: 1,
+  appearancesLast14: 2,
+  appearancesLast30: 4,
+  inningsPitchedLast7: 6.67,
+  inningsPitchedLast14: 13.33,
+  inningsPitchedLast30: 25,
+  battersFacedLast7: 26,
+  battersFacedLast14: 52,
+  battersFacedLast30: 100,
+};
+
+describe('validatePitcherDerivedRates', () => {
+  it('passes for a well-formed pitcher sample', () => {
+    const result = validatePitcherDerivedRates([basePitcherSample]);
+    expect(result.valid).toBe(true);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it('returns valid with a warning when given an empty sample list', () => {
+    const result = validatePitcherDerivedRates([]);
+    expect(result.valid).toBe(true);
+    expect(result.warnings.some((w) => w.includes('No pitcher derived stats samples'))).toBe(true);
+  });
+
+  it('fails when ERA is negative', () => {
+    const bad: PitcherDerivedRateSample = { ...basePitcherSample, eraLast30: -1 };
+    const result = validatePitcherDerivedRates([bad]);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('eraLast30'))).toBe(true);
+  });
+
+  it('fails when ERA exceeds the maximum (20)', () => {
+    const bad: PitcherDerivedRateSample = { ...basePitcherSample, eraLast30: 25 };
+    const result = validatePitcherDerivedRates([bad]);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('eraLast30'))).toBe(true);
+  });
+
+  it('fails when WHIP is negative', () => {
+    const bad: PitcherDerivedRateSample = { ...basePitcherSample, whipLast30: -0.5 };
+    const result = validatePitcherDerivedRates([bad]);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('whipLast30'))).toBe(true);
+  });
+
+  it('fails when strikeout rate is out of range', () => {
+    const bad: PitcherDerivedRateSample = { ...basePitcherSample, strikeoutRateLast30: 1.5 };
+    const result = validatePitcherDerivedRates([bad]);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('strikeoutRateLast30'))).toBe(true);
+  });
+
+  it('fails when walk rate is out of range', () => {
+    const bad: PitcherDerivedRateSample = { ...basePitcherSample, walkRateLast30: -0.1 };
+    const result = validatePitcherDerivedRates([bad]);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('walkRateLast30'))).toBe(true);
+  });
+
+  it('fails when K/BB ratio does not match K% / BB%', () => {
+    const bad: PitcherDerivedRateSample = {
+      ...basePitcherSample,
+      kToBBRatioLast30: 10, // expected ≈ 0.285 / 0.065 ≈ 4.38
+    };
+    const result = validatePitcherDerivedRates([bad]);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('K/BB'))).toBe(true);
+  });
+
+  it('fails when K/BB ratio exceeds the maximum (20)', () => {
+    const bad: PitcherDerivedRateSample = {
+      ...basePitcherSample,
+      // Set walkRate low enough that formula check won't trigger but range still fails
+      walkRateLast30: 0,
+      kToBBRatioLast30: 25,
+    };
+    const result = validatePitcherDerivedRates([bad]);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('kToBBRatioLast30'))).toBe(true);
+  });
+
+  it('skips K/BB formula check when walk rate is zero', () => {
+    const zeroWalks: PitcherDerivedRateSample = {
+      ...basePitcherSample,
+      walkRateLast30: 0,
+      kToBBRatioLast30: 999,
+    };
+    const result = validatePitcherDerivedRates([zeroWalks]);
+    // Only the walkRate range check should pass (0 is valid); no K/BB check triggered
+    expect(result.errors.every((e) => !e.includes('K/BB'))).toBe(true);
+  });
+
+  it('tolerates null rate fields', () => {
+    const nullRates: PitcherDerivedRateSample = {
+      ...basePitcherSample,
+      eraLast30: null,
+      whipLast30: null,
+      strikeoutRateLast30: null,
+      walkRateLast30: null,
+      kToBBRatioLast30: null,
+    };
+    const result = validatePitcherDerivedRates([nullRates]);
+    expect(result.valid).toBe(true);
+  });
+
+  it('fails when appearance windows are not monotonic', () => {
+    const bad: PitcherDerivedRateSample = {
+      ...basePitcherSample,
+      appearancesLast30: 2,
+      appearancesLast14: 3, // 14d > 30d – invalid
+      appearancesLast7: 1,
+    };
+    const result = validatePitcherDerivedRates([bad]);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('non-monotonic appearance windows'))).toBe(true);
+  });
+
+  it('fails when innings pitched windows are not monotonic', () => {
+    const bad: PitcherDerivedRateSample = {
+      ...basePitcherSample,
+      inningsPitchedLast30: 10,
+      inningsPitchedLast14: 13, // 14d > 30d – invalid
+      inningsPitchedLast7: 6,
+    };
+    const result = validatePitcherDerivedRates([bad]);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('non-monotonic IP windows'))).toBe(true);
+  });
+
+  it('fails when batters faced windows are not monotonic', () => {
+    const bad: PitcherDerivedRateSample = {
+      ...basePitcherSample,
+      battersFacedLast30: 40,
+      battersFacedLast14: 52, // 14d > 30d – invalid
+      battersFacedLast7: 26,
+    };
+    const result = validatePitcherDerivedRates([bad]);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('non-monotonic BF windows'))).toBe(true);
+  });
+
+  it('uses pitcher_derived_rates as the stage name', () => {
+    const result = validatePitcherDerivedRates([basePitcherSample]);
+    expect(result.stage).toBe('pitcher_derived_rates');
   });
 });

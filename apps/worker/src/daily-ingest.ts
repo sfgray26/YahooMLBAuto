@@ -16,7 +16,7 @@ import { batchComputeDerivedStatsFromGameLogs } from './derived/fromGameLogs.js'
 import { classifyPlayerRole } from './verification/playerIdentity.js';
 import { ingestPitcherGameLogsForPlayers } from './pitchers/gameLogs.js';
 import { batchComputePitcherDerivedStatsFromGameLogs } from './pitchers/fromGameLogs.js';
-import { validatePipelineRun, type DerivedRateSample } from './validation/pipeline.js';
+import { validatePipelineRun, type DerivedRateSample, type PitcherDerivedRateSample } from './validation/pipeline.js';
 
 const logger = {
   info: (msg: string, meta?: Record<string, unknown>) => console.log(`[DAILY-INGEST] ${msg}`, meta ? JSON.stringify(meta) : ''),
@@ -152,12 +152,44 @@ async function runDailyIngestion() {
       });
     }
 
+    let pitcherDerivedSamples: PitcherDerivedRateSample[] = [];
+    try {
+      const rawPitcherSamples = await prisma.pitcherDerivedStats.findMany({
+        where: { season },
+        orderBy: { computedAt: 'desc' },
+        take: 50,
+        select: {
+          playerMlbamId: true,
+          eraLast30: true,
+          whipLast30: true,
+          strikeoutRateLast30: true,
+          walkRateLast30: true,
+          kToBBRatioLast30: true,
+          appearancesLast7: true,
+          appearancesLast14: true,
+          appearancesLast30: true,
+          inningsPitchedLast7: true,
+          inningsPitchedLast14: true,
+          inningsPitchedLast30: true,
+          battersFacedLast7: true,
+          battersFacedLast14: true,
+          battersFacedLast30: true,
+        },
+      });
+      pitcherDerivedSamples = rawPitcherSamples as PitcherDerivedRateSample[];
+    } catch (sampleError) {
+      logger.error('Could not fetch pitcher derived stats samples for validation', {
+        error: sampleError instanceof Error ? sampleError.message : 'Unknown',
+      });
+    }
+
     const validation = validatePipelineRun({
       hitterIngestion: hitterIngestResult,
       pitcherIngestion: pitcherIngestResult,
       hitterDerived: derivedResult,
       pitcherDerived: pitcherDerivedResult,
       derivedSamples,
+      pitcherDerivedSamples,
     });
 
     logger.info('Pipeline validation complete', {
