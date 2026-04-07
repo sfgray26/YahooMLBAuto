@@ -305,6 +305,7 @@ export function validatePitcherDerivedRates(
 
   for (const s of samples) {
     const id = s.playerMlbamId;
+    const lowVolumeSample = s.inningsPitchedLast30 < 5 || s.battersFacedLast30 < 50;
 
     // Rate range checks (when non-null)
     const rateFields: Array<[string, number | null, number, number]> = [
@@ -319,6 +320,19 @@ export function validatePitcherDerivedRates(
 
     for (const [field, value, min, max] of rateFields) {
       if (value !== null && (value < min || value > max)) {
+        const tolerateLowVolumeUpperBound =
+          lowVolumeSample &&
+          value > max &&
+          (field === 'eraLast30' || field === 'whipLast30');
+
+        if (tolerateLowVolumeUpperBound) {
+          warnings.push(
+            `Pitcher ${id}: ${field} = ${value} exceeds nominal range [${min}, ${max}] but is tolerated for low-volume sample (IP30=${s.inningsPitchedLast30}, BF30=${s.battersFacedLast30})`
+          );
+          rateOutOfRange++;
+          continue;
+        }
+
         errors.push(`Pitcher ${id}: ${field} = ${value} is out of range [${min}, ${max}]`);
         rateOutOfRange++;
       }

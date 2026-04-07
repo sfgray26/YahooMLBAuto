@@ -335,11 +335,30 @@ describe('validatePitcherDerivedRates', () => {
     expect(result.errors.some((e) => e.includes('eraLast30'))).toBe(true);
   });
 
-  it('fails when ERA exceeds the maximum (20)', () => {
+  it('fails when ERA exceeds the maximum (20) for adequately sized samples', () => {
     const bad: PitcherDerivedRateSample = { ...basePitcherSample, eraLast30: 25 };
     const result = validatePitcherDerivedRates([bad]);
     expect(result.valid).toBe(false);
     expect(result.errors.some((e) => e.includes('eraLast30'))).toBe(true);
+  });
+
+  it('warns instead of failing when low-volume reliever samples have extreme ERA', () => {
+    const volatileButPlausible: PitcherDerivedRateSample = {
+      ...basePitcherSample,
+      eraLast30: 23.625,
+      whipLast30: 3.375,
+      inningsPitchedLast7: 1.33,
+      inningsPitchedLast14: 2.67,
+      inningsPitchedLast30: 2.67,
+      battersFacedLast7: 8,
+      battersFacedLast14: 16,
+      battersFacedLast30: 16,
+    };
+
+    const result = validatePitcherDerivedRates([volatileButPlausible]);
+    expect(result.valid).toBe(true);
+    expect(result.errors).toHaveLength(0);
+    expect(result.warnings.some((w) => w.includes('tolerated for low-volume sample'))).toBe(true);
   });
 
   it('fails when WHIP is negative', () => {
