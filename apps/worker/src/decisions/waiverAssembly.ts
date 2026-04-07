@@ -28,6 +28,7 @@ import type {
 } from '@cbb/core';
 import type { PlayerScore } from '../scoring/index.js';
 import type { PitcherScore } from '../pitchers/index.js';
+import { mapConfidenceLabel } from './confidence.js';
 import { 
   isPlayerOnRoster,
   getRosterPlayer,
@@ -275,7 +276,7 @@ export function assembleWaiverDecisionsFromTeamState(
       .map((r, i) => ({ ...r, rank: i + 1 }));
 
     const result: WaiverRecommendationResult = {
-      requestId: traceId,
+      requestId: teamState.identity.teamId,
       generatedAt: new Date().toISOString() as ISO8601Timestamp,
       recommendations: rankedRecommendations.slice(0, 10),
       rosterAnalysis,
@@ -404,7 +405,7 @@ function generatePitcherRecommendations(
         action: 'swap',
         dropCandidate: bestDrop.player,
         expectedValue: upgradeValue,
-        confidence: mapConfidence(avail.score.confidence),
+        confidence: mapConfidenceLabel(avail.score.confidence),
         reasoning: generatePitcherReasoning(avail, bestDrop, teamState),
         urgency: determineUrgency(avail, teamState),
       });
@@ -415,7 +416,7 @@ function generatePitcherRecommendations(
         player: avail.player,
         action: 'add',
         expectedValue: avail.overallValue + avail.waiverEdge,
-        confidence: mapConfidence(avail.score.confidence),
+          confidence: mapConfidenceLabel(avail.score.confidence),
         reasoning: generatePitcherAddReasoning(avail, teamState),
         urgency: avail.role.isCloser ? 'critical' : 'high',
       });
@@ -477,7 +478,7 @@ function generateHitterRecommendations(
         action: 'swap',
         dropCandidate: bestDrop.player,
         expectedValue: avail.overallValue - bestDrop.overallValue,
-        confidence: mapConfidence(avail.score.confidence),
+          confidence: mapConfidenceLabel(avail.score.confidence),
         reasoning: generateHitterReasoning(avail, bestDrop, fillsNeed, thinPositions),
         urgency: fillsNeed ? 'high' : 'medium',
       });
@@ -487,7 +488,7 @@ function generateHitterRecommendations(
         player: avail.player,
         action: 'add',
         expectedValue: avail.overallValue,
-        confidence: mapConfidence(avail.score.confidence),
+          confidence: mapConfidenceLabel(avail.score.confidence),
         reasoning: generateHitterAddReasoning(avail, fillsNeed),
         urgency: fillsNeed ? 'high' : 'medium',
       });
@@ -587,14 +588,6 @@ function generateHitterAddReasoning(
 // ============================================================================
 // Helper Functions
 // ============================================================================
-
-function mapConfidence(confidence: number): ConfidenceLevel {
-  if (confidence >= 0.9) return 'very_high';
-  if (confidence >= 0.75) return 'high';
-  if (confidence >= 0.6) return 'moderate';
-  if (confidence >= 0.4) return 'low';
-  return 'very_low';
-}
 
 function determineUrgency(
   pitcher: ScoredPitcher,

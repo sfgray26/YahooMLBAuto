@@ -24,6 +24,7 @@ import { handleLineupOptimization } from './handlers/lineup.js';
 import { handleWaiverRecommendation } from './handlers/waiver.js';
 import { handleDataSync } from './handlers/dataSync.js';
 import { handleValuation } from './handlers/valuation.js';
+import { mapConfidenceLabel } from './decisions/confidence.js';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -43,11 +44,7 @@ function toConfidenceLabel(confidenceScore: number | null): string | null {
     return null;
   }
 
-  if (confidenceScore >= 0.9) return 'very_high';
-  if (confidenceScore >= 0.75) return 'high';
-  if (confidenceScore >= 0.55) return 'moderate';
-  if (confidenceScore >= 0.35) return 'low';
-  return 'very_low';
+  return mapConfidenceLabel(confidenceScore);
 }
 
 function assertDecisionPayload(type: string, payload: unknown): void {

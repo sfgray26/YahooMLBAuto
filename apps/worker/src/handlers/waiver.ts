@@ -11,7 +11,8 @@ import { prisma } from '@cbb/infrastructure';
 import { validateTeamState, type WaiverRecommendationRequest, type WaiverRecommendationResult } from '@cbb/core';
 
 import { assembleWaiverDecisions, type AvailablePlayer, type WaiverAssemblyInput } from '../decisions/index.js';
-import { buildTeamStateFromWaiverRequest, loadScoreMaps } from './request-context.js';
+import { persistWaiverDecisionSnapshot } from './decision-persistence.js';
+import { buildTeamStateFromWaiverRequest, getSeasonFromTimestamp, loadScoreMaps } from './request-context.js';
 
 export async function handleWaiverRecommendation(
   request: WaiverRecommendationRequest,
@@ -38,7 +39,7 @@ export async function handleWaiverRecommendation(
     throw new Error(`Invalid team state for waiver recommendation: ${validation.errors.join(', ')}`);
   }
 
-  const season = new Date().getUTCFullYear();
+  const season = getSeasonFromTimestamp(request.createdAt);
   const { hitterScores, pitcherScores } = await loadScoreMaps(
     [
       ...teamState.roster.players.map((player) => ({
@@ -52,6 +53,22 @@ export async function handleWaiverRecommendation(
     ],
     season
   );
+
+  const missingPoolPlayers = request.availablePlayers.players
+    .filter((player) => player.isAvailable)
+    .filter((player) => {
+      const positions = player.player.position;
+      const isPitcher = positions.some((position) => ['SP', 'RP', 'P', 'CL'].includes(position.toUpperCase()));
+      return isPitcher
+        ? !pitcherScores.has(player.player.mlbamId)
+        : !hitterScores.has(player.player.mlbamId);
+    });
+
+  if (missingPoolPlayers.length > 0) {
+    throw new Error(
+      `Waiver recommendation requires complete score coverage; missing ${missingPoolPlayers.length} available player scores`
+    );
+  }
 
   if (hitterScores.size === 0 && pitcherScores.size === 0) {
     throw new Error('No derived hitter or pitcher scores were available for the roster or waiver pool');
@@ -94,6 +111,15 @@ export async function handleWaiverRecommendation(
       rosterAnalysis: result.rosterAnalysis as unknown as object,
       traceId,
     },
+  });
+
+  await persistWaiverDecisionSnapshot({
+    requestId: request.id,
+    traceId,
+    teamState,
+    result,
+    hitterScores,
+    pitcherScores,
   });
 
   console.log('[WAIVER] Recommendations generated', {

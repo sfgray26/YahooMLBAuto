@@ -24,7 +24,7 @@ interface ExpandedSlot {
 
 interface LineupAssignmentSeed {
   playerId: string;
-  position: string;
+  positions: string[];
   isLocked: boolean;
 }
 
@@ -56,7 +56,7 @@ export async function loadScoreMaps(
         return;
       }
 
-      const hitterScore = await scoreSinglePlayer(mlbamId, season);
+      const hitterScore = await scoreSinglePlayer(mlbamId, season, positions);
       if (hitterScore) {
         hitterScores.set(mlbamId, hitterScore);
       }
@@ -85,11 +85,11 @@ export function buildTeamStateFromLineupRequest(
   const expandedSlots = expandRosterPositions(request.leagueConfig.rosterPositions);
   const startingPlayers = request.availablePlayers.players
     .filter((player) => player.currentRosterStatus === 'starting')
-    .map((player) => ({
-      playerId: player.player.id,
-      position: player.player.position[0] ?? 'UTIL',
-      isLocked: false,
-    }));
+      .map((player) => ({
+        playerId: player.player.id,
+        positions: normalizeEligiblePositions(player.player.position),
+        isLocked: false,
+      }));
 
   return buildTeamState({
     requestId: request.id,
@@ -113,16 +113,16 @@ export function buildTeamStateFromWaiverRequest(
   const expandedSlots = expandRosterPositions(request.leagueConfig.rosterPositions);
   const activeAssignments = request.currentRoster
     .filter((slot) => !BENCH_SLOT_IDS.has(slot.position.toUpperCase()))
-    .map((slot) => ({
-      playerId: slot.player.id,
-      position: slot.position,
-      isLocked: slot.isLocked,
-    }));
+      .map((slot) => ({
+        playerId: slot.player.id,
+        positions: [slot.position],
+        isLocked: slot.isLocked,
+      }));
 
   return buildTeamState({
     requestId: request.id,
     platform: request.leagueConfig.platform,
-    season: new Date().getUTCFullYear(),
+      season: getSeasonFromTimestamp(request.createdAt),
     scoringPeriod: {
       type: 'daily',
       startDate: request.createdAt,
@@ -310,11 +310,10 @@ function assignPlayersToSlots(
   const slotAssignments: Array<{ slotId: string; playerId: string; isLocked: boolean }> = [];
 
   for (const assignment of assignments) {
-    const desiredPosition = assignment.position.toUpperCase();
     const slot = expandedSlots.find((candidate) =>
       !takenSlots.has(candidate.slotId) &&
       candidate.domain !== 'bench' &&
-      matchesPosition(candidate, desiredPosition)
+      assignment.positions.some((position) => matchesPosition(candidate, position.toUpperCase()))
     );
 
     if (!slot) {

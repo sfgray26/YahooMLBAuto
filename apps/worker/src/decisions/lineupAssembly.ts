@@ -32,6 +32,7 @@ import type {
 } from '@cbb/core';
 import type { PlayerScore } from '../scoring/index.js';
 import type { PitcherScore } from '../pitchers/index.js';
+import { confidenceLevelToScore, mapConfidenceLabel } from './confidence.js';
 import { 
   isPlayerOnRoster, 
   isPlayerLocked, 
@@ -133,7 +134,7 @@ function assembleHitters(
         position: slotConfig.slotId,
         player: selected.player,
         projectedPoints: calculateHitterProjectedPoints(selected.score),
-        confidence: mapConfidence(selected.confidence),
+      confidence: mapConfidenceLabel(selected.confidence),
         factors: generateHitterFactors(selected.score),
       };
 
@@ -231,7 +232,7 @@ function assemblePitchers(
         position: slotConfig.slotId,
         player: selected.player,
         projectedPoints: calculatePitcherProjectedPoints(selected.score),
-        confidence: mapConfidence(selected.confidence),
+        confidence: mapConfidenceLabel(selected.confidence),
         factors: generatePitcherFactors(selected.score),
       };
 
@@ -390,7 +391,7 @@ export function assembleLineupFromTeamState(input: TeamStateLineupInput): Assemb
     );
 
     const result: LineupOptimizationResult = {
-      requestId: traceId,  // Generate fresh ID since we're not using request
+      requestId: teamState.identity.teamId,
       generatedAt: new Date().toISOString() as ISO8601Timestamp,
       optimalLineup: allSlots,
       expectedPoints,
@@ -434,14 +435,6 @@ function calculatePitcherProjectedPoints(score: PitcherScore): number {
   return Math.round((basePoints + confidenceAdjustment) * 10) / 10;
 }
 
-function mapConfidence(confidence: number): ConfidenceLevel {
-  if (confidence >= 0.9) return 'very_high';
-  if (confidence >= 0.75) return 'high';
-  if (confidence >= 0.6) return 'moderate';
-  if (confidence >= 0.4) return 'low';
-  return 'very_low';
-}
-
 function generateHitterFactors(score: PlayerScore): string[] {
   const factors: string[] = [];
   if (score.components.hitting >= 70) factors.push('strong_hitter');
@@ -465,27 +458,48 @@ function generatePitcherFactors(score: PitcherScore): string[] {
   return factors;
 }
 
-function generateAlternatives(
+export function generateAlternatives(
   lineup: LineupSlot[],
-  rosterHitters: Array<{ player: PlayerIdentity; score: PlayerScore }>,
-  rosterPitchers: Array<{ player: PlayerIdentity; score: PitcherScore }>,
+  rosterHitters: Array<{ player: PlayerIdentity; score: PlayerScore; overallValue: number; confidence: number; eligibleSlots: string[] }>,
+  rosterPitchers: Array<{ player: PlayerIdentity; score: PitcherScore; overallValue: number; confidence: number; eligibleSlots: string[] }>,
   hittingSlots: Array<{ slotId: string }>,
   pitcherSlots: Array<{ slotId: string }>
 ): AlternativeLineup[] {
   const alternatives: AlternativeLineup[] = [];
+  const lineupPlayerIds = new Set(lineup.map((slot) => slot.player.id));
 
   for (const slot of lineup) {
     const isPitcherSlot = pitcherSlots.some(ps => ps.slotId === slot.position);
     
     const alternativesForSlot = isPitcherSlot
-      ? rosterPitchers.filter(p => p.player.id !== slot.player.id)
-      : rosterHitters.filter(h => h.player.id !== slot.player.id);
+      ? rosterPitchers
+          .filter(p => p.player.id !== slot.player.id)
+          .filter(p => !lineupPlayerIds.has(p.player.id))
+          .filter(p => p.eligibleSlots.includes(slot.position))
+          .sort((a, b) => b.overallValue - a.overallValue)
+      : rosterHitters
+          .filter(h => h.player.id !== slot.player.id)
+          .filter(h => !lineupPlayerIds.has(h.player.id))
+          .filter(h => h.eligibleSlots.includes(slot.position))
+          .sort((a, b) => b.overallValue - a.overallValue);
 
     if (alternativesForSlot.length > 0) {
       const nextBest = alternativesForSlot[0];
+      const replacementProjectedPoints = isPitcherSlot
+        ? calculatePitcherProjectedPoints((nextBest as { score: PitcherScore }).score)
+        : calculateHitterProjectedPoints((nextBest as { score: PlayerScore }).score);
+      const replacementFactors = isPitcherSlot
+        ? generatePitcherFactors((nextBest as { score: PitcherScore }).score)
+        : generateHitterFactors((nextBest as { score: PlayerScore }).score);
       const altLineup = lineup.map(s =>
         s.position === slot.position && s.player.id === slot.player.id
-          ? { ...s, player: nextBest.player }
+          ? {
+              ...s,
+              player: nextBest.player,
+              projectedPoints: replacementProjectedPoints,
+              confidence: mapConfidenceLabel(nextBest.confidence),
+              factors: replacementFactors,
+            }
           : s
       );
 
@@ -613,21 +627,13 @@ function buildTeamAwareSummary(
     `(${lineup.length}/${totalRosterSize} roster spots filled). ` +
     `Projected ${expectedPoints.toFixed(1)} points. ` +
     `${lockedCount > 0 ? `${lockedCount} locked. ` : ''}` +
-    `${lineup.filter(s => s.confidence >= 'high').length} high-confidence selections.`;
+    `${lineup.filter(s => confidenceLevelToScore(s.confidence) >= confidenceLevelToScore('high')).length} high-confidence selections.`;
 }
 
 function calculateConfidenceScore(lineup: LineupSlot[]): number {
   if (lineup.length === 0) return 0;
-  
-  const confidenceMap: Record<ConfidenceLevel, number> = {
-    very_high: 1.0,
-    high: 0.8,
-    moderate: 0.6,
-    low: 0.4,
-    very_low: 0.2,
-  };
-  
-  const total = lineup.reduce((sum, s) => sum + confidenceMap[s.confidence], 0);
+
+  const total = lineup.reduce((sum, s) => sum + confidenceLevelToScore(s.confidence), 0);
   return total / lineup.length;
 }
 

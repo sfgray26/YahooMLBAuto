@@ -192,7 +192,8 @@ export async function batchScorePlayers(
  */
 export async function scoreSinglePlayer(
   playerMlbamId: string,
-  season: number
+  season: number,
+  fallbackPositionEligibility?: string[]
 ): Promise<PlayerScore | null> {
   const record = await prisma.playerDerivedStats.findFirst({
     where: { playerMlbamId, season },
@@ -251,11 +252,28 @@ export async function scoreSinglePlayer(
     },
 
     replacement: {
-      positionEligibility: record.positionEligibility,
+      positionEligibility: resolvePositionEligibility(record.positionEligibility, fallbackPositionEligibility),
       waiverWireValue: record.waiverWireValue,
       rosteredPercent: record.rosteredPercent,
     },
   };
 
   return scorePlayer(features);
+}
+
+export function resolvePositionEligibility(
+  storedPositionEligibility: string[],
+  fallbackPositionEligibility?: string[]
+): string[] {
+  const normalize = (positions: string[] | undefined): string[] =>
+    (positions ?? [])
+      .map((position) => position.trim().toUpperCase())
+      .filter(Boolean);
+
+  const persisted = normalize(storedPositionEligibility);
+  if (persisted.length > 0) {
+    return persisted;
+  }
+
+  return normalize(fallbackPositionEligibility);
 }

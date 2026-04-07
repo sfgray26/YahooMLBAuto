@@ -11,6 +11,7 @@ import { prisma } from '@cbb/infrastructure';
 import { validateTeamState, type LineupOptimizationRequest, type LineupOptimizationResult } from '@cbb/core';
 
 import { assembleLineup, type AssemblyInput } from '../decisions/index.js';
+import { persistLineupDecisionSnapshot } from './decision-persistence.js';
 import { buildTeamStateFromLineupRequest, getSeasonFromTimestamp, loadScoreMaps } from './request-context.js';
 
 export async function handleLineupOptimization(
@@ -43,6 +44,21 @@ export async function handleLineupOptimization(
     })),
     season
   );
+
+  const missingRosterPlayers = teamState.roster.players
+    .filter((player) => !player.isInjured || player.injuryStatus === 'day_to_day')
+    .filter((player) => {
+      const isPitcher = player.positions.some((position) => ['SP', 'RP', 'P', 'CL'].includes(position.toUpperCase()));
+      return isPitcher
+        ? !pitcherScores.has(player.mlbamId)
+        : !hitterScores.has(player.mlbamId);
+    });
+
+  if (missingRosterPlayers.length > 0) {
+    throw new Error(
+      `Lineup optimization requires complete score coverage; missing ${missingRosterPlayers.length} roster player scores`
+    );
+  }
 
   if (hitterScores.size === 0 && pitcherScores.size === 0) {
     throw new Error('No derived hitter or pitcher scores were available for the requested roster');
@@ -79,6 +95,15 @@ export async function handleLineupOptimization(
       explanation: result.explanation as unknown as object,
       traceId,
     },
+  });
+
+  await persistLineupDecisionSnapshot({
+    requestId: request.id,
+    traceId,
+    teamState,
+    result,
+    hitterScores,
+    pitcherScores,
   });
 
   console.log('[LINEUP] Optimization complete', {
