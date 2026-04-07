@@ -1,0 +1,85 @@
+name: Daily Production Pipeline
+
+on:
+  schedule:
+    - cron: '15 10 * * *'
+    - cron: '15 22 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: daily-production-pipeline
+  cancel-in-progress: false
+
+jobs:
+  trigger-production-pipeline:
+    name: Trigger production ingest pipeline
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      PRODUCTION_API_BASE_URL: ${{ vars.PRODUCTION_API_BASE_URL || 'https://yahoomlbauto-production.up.railway.app' }}
+
+    steps:
+      - name: Verify API health
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error "$PRODUCTION_API_BASE_URL/health" > /tmp/health.json
+          cat /tmp/health.json
+
+      - name: Resolve MLB season
+        id: season
+        run: |
+          echo "season=$(date -u +%Y)" >> "$GITHUB_OUTPUT"
+
+      - name: Trigger season ingestion
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            -X POST "$PRODUCTION_API_BASE_URL/admin/trigger-ingestion" \
+            -H "Content-Type: application/json" \
+            -d "{\"season\":${{ steps.season.outputs.season }},\"dryRun\":false}" > /tmp/trigger-ingestion.json
+          cat /tmp/trigger-ingestion.json
+
+      - name: Trigger hitter game log ingestion
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            -X POST "$PRODUCTION_API_BASE_URL/admin/ingest-game-logs" \
+            -H "Content-Type: application/json" \
+            -d "{\"season\":${{ steps.season.outputs.season }}}" > /tmp/ingest-game-logs.json
+          cat /tmp/ingest-game-logs.json
+
+      - name: Trigger hitter derived computation
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            -X POST "$PRODUCTION_API_BASE_URL/admin/compute-derived-from-logs" \
+            -H "Content-Type: application/json" \
+            -d "{\"season\":${{ steps.season.outputs.season }}}" > /tmp/compute-derived.json
+          cat /tmp/compute-derived.json
+
+      - name: Trigger pitcher game log ingestion
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            -X POST "$PRODUCTION_API_BASE_URL/admin/ingest-pitcher-game-logs" \
+            -H "Content-Type: application/json" \
+            -d "{\"season\":${{ steps.season.outputs.season }}}" > /tmp/ingest-pitcher-game-logs.json
+          cat /tmp/ingest-pitcher-game-logs.json
+
+      - name: Trigger pitcher derived computation
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            -X POST "$PRODUCTION_API_BASE_URL/admin/compute-pitcher-derived-from-logs" \
+            -H "Content-Type: application/json" \
+            -d "{\"season\":${{ steps.season.outputs.season }}}" > /tmp/compute-pitcher-derived.json
+          cat /tmp/compute-pitcher-derived.json
+
+      - name: Verify production counts
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            "$PRODUCTION_API_BASE_URL/admin/ingestion-status?season=${{ steps.season.outputs.season }}" > /tmp/ingestion-status.json
+          cat /tmp/ingestion-status.json
