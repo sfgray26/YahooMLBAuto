@@ -1,0 +1,1059 @@
+{
+  "info": {
+    "_postman_id": "cbb-edge-analyzer-v1",
+    "name": "CBB Edge Analyzer API",
+    "description": "Fantasy Baseball Intelligence API — Trade Evaluation, Momentum Detection, ROS Simulation, Lineup Optimization, and Waiver Wire Recommendations.\n\nSet the `baseUrl` variable to your deployed API (e.g. `https://your-app.railway.app`) or leave as `http://localhost:3000` for local development.\n\n**UAT Quick-Start:**\n1. Run **POST /admin/seed-uat** to populate the database with real MLB player data.\n2. Run **GET /health** to confirm the API is up.\n3. Test individual endpoints using the real MLBAM player IDs seeded in step 1.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000",
+      "description": "Base URL of the API. Change this to your deployed Railway/production URL."
+    },
+    {
+      "key": "requestId",
+      "value": "",
+      "description": "Populated automatically after queuing a lineup or waiver request. Use in the corresponding /result GET."
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "description": "Service health and liveness checks.",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            },
+            "description": "Returns database connectivity status and overall service health."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Lineup Optimization",
+      "description": "Queue and retrieve lineup optimization decisions.",
+      "item": [
+        {
+          "name": "Request Lineup Optimization",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var json = pm.response.json();",
+                  "if (json.requestId) {",
+                  "  pm.collectionVariables.set('requestId', json.requestId);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"leagueId\": \"my-yahoo-league\",\n  \"platform\": \"yahoo\",\n  \"format\": \"h2h\",\n  \"scoringPeriod\": \"today\",\n  \"riskTolerance\": \"balanced\",\n  \"leagueSize\": 12,\n  \"availablePlayers\": {\n    \"players\": [\n      {\n        \"player\": {\n          \"id\": \"mlbam:673237\",\n          \"mlbamId\": \"673237\",\n          \"name\": \"Yainer Diaz\",\n          \"team\": \"HOU\",\n          \"position\": [\"C\"]\n        },\n        \"isAvailable\": true,\n        \"currentRosterStatus\": \"starting\"\n      },\n      {\n        \"player\": {\n          \"id\": \"mlbam:665742\",\n          \"mlbamId\": \"665742\",\n          \"name\": \"Juan Soto\",\n          \"team\": \"NYM\",\n          \"position\": [\"LF\", \"RF\"]\n        },\n        \"isAvailable\": true,\n        \"currentRosterStatus\": \"starting\"\n      },\n      {\n        \"player\": {\n          \"id\": \"mlbam:676979\",\n          \"mlbamId\": \"676979\",\n          \"name\": \"Garrett Crochet\",\n          \"team\": \"BOS\",\n          \"position\": [\"SP\"]\n        },\n        \"isAvailable\": true,\n        \"currentRosterStatus\": \"starting\"\n      }\n    ]\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/lineup/today",
+              "host": ["{{baseUrl}}"],
+              "path": ["lineup", "today"]
+            },
+            "description": "Queue a lineup optimization request. Returns a `requestId` — use the *Get Lineup Result* request to poll for the outcome. The test script automatically saves `requestId` to the collection variable."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Lineup Result",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/lineup/{{requestId}}/result",
+              "host": ["{{baseUrl}}"],
+              "path": ["lineup", "{{requestId}}", "result"]
+            },
+            "description": "Poll for the result of a previously queued lineup optimization. Replace `{{requestId}}` with the ID returned by the POST request (automatically set if you ran the POST first)."
+          },
+          "response": []
+        },
+        {
+          "name": "List Lineup Optimizations",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/lineup/optimizations?limit=10&offset=0",
+              "host": ["{{baseUrl}}"],
+              "path": ["lineup", "optimizations"],
+              "query": [
+                { "key": "limit", "value": "10" },
+                { "key": "offset", "value": "0" }
+              ]
+            },
+            "description": "List recent lineup optimization requests and their statuses."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Waiver Wire",
+      "description": "Waiver wire recommendation requests and results.",
+      "item": [
+        {
+          "name": "Request Waiver Recommendations",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var json = pm.response.json();",
+                  "if (json.requestId) {",
+                  "  pm.collectionVariables.set('requestId', json.requestId);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"leagueId\": \"my-yahoo-league\",\n  \"platform\": \"yahoo\",\n  \"format\": \"h2h\",\n  \"scope\": \"add_drop\",\n  \"leagueSize\": 12,\n  \"currentRoster\": [\n    {\n      \"player\": {\n        \"id\": \"mlbam:673237\",\n        \"mlbamId\": \"673237\",\n        \"name\": \"Yainer Diaz\",\n        \"team\": \"HOU\",\n        \"position\": [\"C\"]\n      },\n      \"position\": \"C\",\n      \"isLocked\": false\n    },\n    {\n      \"player\": {\n        \"id\": \"mlbam:665742\",\n        \"mlbamId\": \"665742\",\n        \"name\": \"Juan Soto\",\n        \"team\": \"NYM\",\n        \"position\": [\"LF\", \"RF\"]\n      },\n      \"position\": \"RF\",\n      \"isLocked\": false\n    },\n    {\n      \"player\": {\n        \"id\": \"mlbam:621439\",\n        \"mlbamId\": \"621439\",\n        \"name\": \"Byron Buxton\",\n        \"team\": \"MIN\",\n        \"position\": [\"CF\"]\n      },\n      \"position\": \"CF\",\n      \"isLocked\": false\n    }\n  ],\n  \"availablePlayers\": {\n    \"players\": [\n      {\n        \"player\": {\n          \"id\": \"mlbam:694817\",\n          \"mlbamId\": \"694817\",\n          \"name\": \"Gunnar Henderson\",\n          \"team\": \"BAL\",\n          \"position\": [\"SS\", \"3B\"]\n        },\n        \"isAvailable\": true\n      },\n      {\n        \"player\": {\n          \"id\": \"mlbam:660670\",\n          \"mlbamId\": \"660670\",\n          \"name\": \"Bobby Witt Jr.\",\n          \"team\": \"KC\",\n          \"position\": [\"SS\"]\n        },\n        \"isAvailable\": true\n      }\n    ]\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/waiver/recommendations",
+              "host": ["{{baseUrl}}"],
+              "path": ["waiver", "recommendations"]
+            },
+            "description": "Queue a waiver wire recommendation request. The test script automatically saves `requestId` to the collection variable."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Waiver Result",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/waiver/{{requestId}}/result",
+              "host": ["{{baseUrl}}"],
+              "path": ["waiver", "{{requestId}}", "result"]
+            },
+            "description": "Poll for the result of a previously queued waiver recommendation."
+          },
+          "response": []
+        },
+        {
+          "name": "List Waiver Requests",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/waiver/recommendations?limit=10&offset=0",
+              "host": ["{{baseUrl}}"],
+              "path": ["waiver", "recommendations"],
+              "query": [
+                { "key": "limit", "value": "10" },
+                { "key": "offset", "value": "0" }
+              ]
+            },
+            "description": "List recent waiver recommendation requests."
+          },
+          "response": []
+        },
+        {
+          "name": "Test With Real Roster",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/waiver/test-with-roster",
+              "host": ["{{baseUrl}}"],
+              "path": ["waiver", "test-with-roster"]
+            },
+            "description": "Convenience UAT endpoint — submits a pre-built waiver recommendation request using the real MLB roster hard-coded in the server (Yainer Diaz, Juan Soto, Garrett Crochet, etc.)."
+          },
+          "response": []
+        },
+        {
+          "name": "View My Roster",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/waiver/my-roster",
+              "host": ["{{baseUrl}}"],
+              "path": ["waiver", "my-roster"]
+            },
+            "description": "Returns the hard-coded real MLB roster and waiver wire pool used by the test-with-roster endpoint."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Players",
+      "description": "Player valuation, scoring, and search.",
+      "item": [
+        {
+          "name": "Get Player Valuation",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/players/673237/valuation",
+              "host": ["{{baseUrl}}"],
+              "path": ["players", "673237", "valuation"],
+              "query": [
+                { "key": "date", "value": "", "disabled": true, "description": "Optional ISO date, e.g. 2026-04-01" }
+              ]
+            },
+            "description": "Get full derived features and valuation for a player by MLBAM ID. Example: `673237` = Yainer Diaz."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Player Score",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/players/673237/score",
+              "host": ["{{baseUrl}}"],
+              "path": ["players", "673237", "score"],
+              "query": [
+                { "key": "season", "value": "2026" }
+              ]
+            },
+            "description": "Get the composite value score (0–100) for a player. Example: `673237` = Yainer Diaz."
+          },
+          "response": []
+        },
+        {
+          "name": "Search Players",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/players/search?q=Soto&limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["players", "search"],
+              "query": [
+                { "key": "q", "value": "Soto", "description": "Partial player name search" },
+                { "key": "team", "value": "", "disabled": true, "description": "Filter by team abbreviation, e.g. NYM" },
+                { "key": "position", "value": "", "disabled": true, "description": "Filter by position, e.g. OF" },
+                { "key": "limit", "value": "10" }
+              ]
+            },
+            "description": "Search for players by name, team, or position."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Top Players",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/players/top?limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["players", "top"],
+              "query": [
+                { "key": "position", "value": "", "disabled": true, "description": "Filter by position, e.g. OF" },
+                { "key": "limit", "value": "20" }
+              ]
+            },
+            "description": "Get top-valued players ranked by value over replacement."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Top Scored Players",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/players/scores/top?season=2026&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["players", "scores", "top"],
+              "query": [
+                { "key": "season", "value": "2026" },
+                { "key": "limit", "value": "20" }
+              ]
+            },
+            "description": "Get top players ranked by composite score derived from game logs."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Decisions",
+      "description": "View, approve, and reject fantasy decision recommendations.",
+      "item": [
+        {
+          "name": "List Decisions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/decisions?limit=20&offset=0",
+              "host": ["{{baseUrl}}"],
+              "path": ["decisions"],
+              "query": [
+                { "key": "limit", "value": "20" },
+                { "key": "offset", "value": "0" },
+                { "key": "status", "value": "", "disabled": true, "description": "Filter by status: pending, approved, rejected" },
+                { "key": "type", "value": "", "disabled": true, "description": "Filter by type: waiver_recommendation, lineup_optimization" }
+              ]
+            },
+            "description": "List all decisions with optional status/type filtering."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Pending Decisions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/decisions/pending?limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["decisions", "pending"],
+              "query": [
+                { "key": "limit", "value": "20" },
+                { "key": "type", "value": "", "disabled": true }
+              ]
+            },
+            "description": "Get decisions that require human review before execution."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Decision by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/decisions/{{requestId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["decisions", "{{requestId}}"]
+            },
+            "description": "Get full details for a specific decision by ID."
+          },
+          "response": []
+        },
+        {
+          "name": "Approve Decision",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/decisions/{{requestId}}/approve",
+              "host": ["{{baseUrl}}"],
+              "path": ["decisions", "{{requestId}}", "approve"]
+            },
+            "description": "Approve a pending decision for execution. Replace `{{requestId}}` with the decision ID."
+          },
+          "response": []
+        },
+        {
+          "name": "Reject Decision",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Not enough streaming options this week\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/decisions/{{requestId}}/reject",
+              "host": ["{{baseUrl}}"],
+              "path": ["decisions", "{{requestId}}", "reject"]
+            },
+            "description": "Reject a pending decision with an optional reason."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Trade Evaluator",
+      "description": "Evaluate trade proposals using ROS projections and category analysis.",
+      "item": [
+        {
+          "name": "Get Trade Examples",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/trade/examples",
+              "host": ["{{baseUrl}}"],
+              "path": ["trade", "examples"]
+            },
+            "description": "Returns pre-built example trade payloads to copy into the evaluate endpoint."
+          },
+          "response": []
+        },
+        {
+          "name": "Evaluate Trade (Full)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"proposal\": {\n    \"playersYouGive\": [\n      {\n        \"playerId\": \"mlbam:673237\",\n        \"playerMlbamId\": \"673237\",\n        \"name\": \"Yainer Diaz\",\n        \"positions\": [\"C\"],\n        \"team\": \"HOU\",\n        \"isInjured\": false,\n        \"gamesThisWeek\": 6\n      },\n      {\n        \"playerId\": \"mlbam:686469\",\n        \"playerMlbamId\": \"686469\",\n        \"name\": \"Vinnie Pasquantino\",\n        \"positions\": [\"1B\"],\n        \"team\": \"KC\",\n        \"isInjured\": false,\n        \"gamesThisWeek\": 6\n      }\n    ],\n    \"playersYouGet\": [\n      {\n        \"playerId\": \"mlbam:665742\",\n        \"playerMlbamId\": \"665742\",\n        \"name\": \"Juan Soto\",\n        \"positions\": [\"LF\", \"RF\"],\n        \"team\": \"NYM\",\n        \"isInjured\": false,\n        \"gamesThisWeek\": 6\n      }\n    ],\n    \"faabYouGive\": 0,\n    \"faabYouGet\": 0\n  },\n  \"teamState\": {\n    \"teamId\": \"my-team\",\n    \"teamName\": \"My Fantasy Team\"\n  },\n  \"config\": {\n    \"format\": \"roto\",\n    \"riskTolerance\": \"balanced\",\n    \"leagueSize\": 12,\n    \"currentWeek\": 8,\n    \"weeksRemaining\": 18\n  },\n  \"outputFormat\": \"json\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/trade/evaluate",
+              "host": ["{{baseUrl}}"],
+              "path": ["trade", "evaluate"]
+            },
+            "description": "Full trade evaluation using ROS projections, category impact, and risk assessment. Returns `recommendation` (strong_accept / lean_accept / neutral / lean_reject / hard_reject)."
+          },
+          "response": []
+        },
+        {
+          "name": "Evaluate Trade (Markdown Output)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"proposal\": {\n    \"playersYouGive\": [\n      {\n        \"playerId\": \"mlbam:673237\",\n        \"playerMlbamId\": \"673237\",\n        \"name\": \"Yainer Diaz\",\n        \"positions\": [\"C\"],\n        \"team\": \"HOU\",\n        \"isInjured\": false,\n        \"gamesThisWeek\": 6\n      }\n    ],\n    \"playersYouGet\": [\n      {\n        \"playerId\": \"mlbam:694817\",\n        \"playerMlbamId\": \"694817\",\n        \"name\": \"Gunnar Henderson\",\n        \"positions\": [\"SS\", \"3B\"],\n        \"team\": \"BAL\",\n        \"isInjured\": false,\n        \"gamesThisWeek\": 6\n      }\n    ],\n    \"faabYouGive\": 0,\n    \"faabYouGet\": 0\n  },\n  \"config\": {\n    \"format\": \"roto\",\n    \"riskTolerance\": \"balanced\",\n    \"leagueSize\": 12\n  },\n  \"outputFormat\": \"markdown\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/trade/evaluate",
+              "host": ["{{baseUrl}}"],
+              "path": ["trade", "evaluate"]
+            },
+            "description": "Same as the full evaluate endpoint but returns a human-readable Markdown report instead of JSON."
+          },
+          "response": []
+        },
+        {
+          "name": "Quick Trade Estimate",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"playersYouGive\": [\n    { \"name\": \"Yainer Diaz\", \"score\": 62 },\n    { \"name\": \"Vinnie Pasquantino\", \"score\": 58 }\n  ],\n  \"playersYouGet\": [\n    { \"name\": \"Juan Soto\", \"score\": 85 }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/trade/quick-estimate",
+              "host": ["{{baseUrl}}"],
+              "path": ["trade", "quick-estimate"]
+            },
+            "description": "Fast score-based trade estimate. Provide your own 0–100 scores for each player — no database lookup required."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Momentum Detection",
+      "description": "Analyze player hot/cold streaks using Z-score slope (ΔZ).",
+      "item": [
+        {
+          "name": "Analyze Player Momentum",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"zScore14d\": 1.8,\n  \"zScore30d\": 0.4,\n  \"games14d\": 12,\n  \"games30d\": 24,\n  \"playerName\": \"Juan Soto\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/momentum/analyze",
+              "host": ["{{baseUrl}}"],
+              "path": ["momentum", "analyze"]
+            },
+            "description": "Calculate momentum from Z-scores. ΔZ = Z_14d − Z_30d. Returns trend (surging / hot / stable / cold / collapsing) and a buy/hold/sell recommendation."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Player Momentum (from DB)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/momentum/665742?season=2026",
+              "host": ["{{baseUrl}}"],
+              "path": ["momentum", "665742"],
+              "query": [
+                { "key": "season", "value": "2026" }
+              ]
+            },
+            "description": "Look up momentum for a player from their persisted derived stats. Example: `665742` = Juan Soto. Requires data to be ingested first (run /admin/seed-uat or /admin/ingest-game-logs)."
+          },
+          "response": []
+        },
+        {
+          "name": "Batch Momentum Analysis",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"players\": [\n    { \"playerId\": \"665742\", \"zScore14d\": 1.8, \"zScore30d\": 0.4, \"games14d\": 12, \"games30d\": 24 },\n    { \"playerId\": \"673237\", \"zScore14d\": -0.6, \"zScore30d\": 0.2, \"games14d\": 10, \"games30d\": 22 },\n    { \"playerId\": \"694817\", \"zScore14d\": 2.1, \"zScore30d\": 1.0, \"games14d\": 13, \"games30d\": 25 },\n    { \"playerId\": \"660670\", \"zScore14d\": 1.5, \"zScore30d\": 0.9, \"games14d\": 12, \"games30d\": 24 }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/momentum/batch",
+              "host": ["{{baseUrl}}"],
+              "path": ["momentum", "batch"]
+            },
+            "description": "Calculate momentum for multiple players in a single request. Returns a summary of buy/sell signals and breakout/collapse warnings."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Hot Players (Leaders)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/momentum/leaders/hot?season=2026&limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["momentum", "leaders", "hot"],
+              "query": [
+                { "key": "season", "value": "2026" },
+                { "key": "limit", "value": "10" }
+              ]
+            },
+            "description": "Returns players with the strongest positive momentum from the database."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "ROS Simulation",
+      "description": "Monte Carlo rest-of-season projections and player comparisons.",
+      "item": [
+        {
+          "name": "Run ROS Simulation (Single Player)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"playerId\": \"665742\",\n  \"season\": 2026,\n  \"config\": {\n    \"simulations\": 1000,\n    \"weeksRemaining\": 18,\n    \"gamesPerWeek\": 6,\n    \"confidenceLevel\": 0.9,\n    \"regressionToMean\": true\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/simulate/ros",
+              "host": ["{{baseUrl}}"],
+              "path": ["simulate", "ros"]
+            },
+            "description": "Run a Monte Carlo ROS projection for a single player. Returns percentile distribution (p10–p90), risk profile, and value-at-risk."
+          },
+          "response": []
+        },
+        {
+          "name": "Run ROS Simulation (Batch)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"players\": [\n    { \"playerId\": \"665742\", \"name\": \"Juan Soto\" },\n    { \"playerId\": \"694817\", \"name\": \"Gunnar Henderson\" },\n    { \"playerId\": \"660670\", \"name\": \"Bobby Witt Jr.\" }\n  ],\n  \"config\": {\n    \"simulations\": 500,\n    \"weeksRemaining\": 18\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/simulate/batch",
+              "host": ["{{baseUrl}}"],
+              "path": ["simulate", "batch"]
+            },
+            "description": "Run ROS projections for multiple players in one request."
+          },
+          "response": []
+        },
+        {
+          "name": "Compare Players Probabilistically",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"players\": [\n    { \"playerId\": \"665742\", \"name\": \"Juan Soto\", \"currentScore\": 85, \"confidence\": 0.9 },\n    { \"playerId\": \"694817\", \"name\": \"Gunnar Henderson\", \"currentScore\": 78, \"confidence\": 0.85 },\n    { \"playerId\": \"660670\", \"name\": \"Bobby Witt Jr.\", \"currentScore\": 82, \"confidence\": 0.88 }\n  ],\n  \"config\": {\n    \"simulations\": 1000\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/simulate/compare",
+              "host": ["{{baseUrl}}"],
+              "path": ["simulate", "compare"]
+            },
+            "description": "Head-to-head probabilistic comparison of 2–5 players. Returns win probabilities, median differences, and overall rankings."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Player Score Distribution",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/simulate/665742/distribution?season=2026",
+              "host": ["{{baseUrl}}"],
+              "path": ["simulate", "665742", "distribution"],
+              "query": [
+                { "key": "season", "value": "2026" }
+              ]
+            },
+            "description": "Get the percentile score distribution for a player from the database. Example: `665742` = Juan Soto."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Monte Carlo (Legacy Test Routes)",
+      "description": "Lower-level Monte Carlo endpoints used for validation and debugging.",
+      "item": [
+        {
+          "name": "Single Player Monte Carlo Test",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/monte-carlo/test/665742?runs=10000&horizon=daily",
+              "host": ["{{baseUrl}}"],
+              "path": ["monte-carlo", "test", "665742"],
+              "query": [
+                { "key": "runs", "value": "10000", "description": "Number of Monte Carlo iterations" },
+                { "key": "horizon", "value": "daily", "description": "daily or weekly" }
+              ]
+            },
+            "description": "Run the Monte Carlo simulation for a player and get detailed percentile output. Example MLBAM IDs: Juan Soto=665742, Yainer Diaz=673237, Garrett Crochet=676979."
+          },
+          "response": []
+        },
+        {
+          "name": "Compare Two Players Monte Carlo",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/monte-carlo/compare?playerA=665742&playerB=694817&runs=10000",
+              "host": ["{{baseUrl}}"],
+              "path": ["monte-carlo", "compare"],
+              "query": [
+                { "key": "playerA", "value": "665742", "description": "MLBAM ID — Juan Soto" },
+                { "key": "playerB", "value": "694817", "description": "MLBAM ID — Gunnar Henderson" },
+                { "key": "runs", "value": "10000" }
+              ]
+            },
+            "description": "Compare two players head-to-head via Monte Carlo. Returns P(A outperforms B) and P(B outperforms A)."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Admin",
+      "description": "Data ingestion, seeding, validation, and system management. Run /admin/seed-uat first to populate test data.",
+      "item": [
+        {
+          "name": "Seed UAT Data",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"season\": 2026\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/seed-uat",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "seed-uat"]
+            },
+            "description": "⭐ START HERE for UAT. Seeds the database with realistic stats for real MLB players (Yainer Diaz, Juan Soto, Garrett Crochet, etc.). Required before most other endpoints will return data."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Ingestion Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/ingestion-status?season=2026",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "ingestion-status"],
+              "query": [
+                { "key": "season", "value": "2026" }
+              ]
+            },
+            "description": "Check database record counts and validation status for a given season."
+          },
+          "response": []
+        },
+        {
+          "name": "Trigger Full Ingestion",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"season\": 2026,\n  \"dryRun\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/trigger-ingestion",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "trigger-ingestion"]
+            },
+            "description": "Trigger a full MLB stats ingestion run. Set `dryRun: true` to validate without writing to the database."
+          },
+          "response": []
+        },
+        {
+          "name": "Ingest Game Logs (Batters)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"playerIds\": [\n    \"673237\",\n    \"665742\",\n    \"694817\",\n    \"660670\",\n    \"686469\"\n  ],\n  \"season\": 2026\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/ingest-game-logs",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "ingest-game-logs"]
+            },
+            "description": "Fetch and store game-by-game batter logs from the MLB Stats API for the given MLBAM IDs."
+          },
+          "response": []
+        },
+        {
+          "name": "Compute Derived Stats from Game Logs (Batters)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"season\": 2026\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/compute-derived-from-logs",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "compute-derived-from-logs"]
+            },
+            "description": "Compute rolling window derived stats (OPS, BA, ISO, etc.) from stored batter game logs."
+          },
+          "response": []
+        },
+        {
+          "name": "Ingest Game Logs (Pitchers)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"playerIds\": [\n    \"676979\",\n    \"650911\",\n    \"684858\"\n  ],\n  \"season\": 2026\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/ingest-pitcher-game-logs",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "ingest-pitcher-game-logs"]
+            },
+            "description": "Fetch and store game-by-game pitcher logs. MLBAM IDs: Garrett Crochet=676979, Cristopher Sánchez=650911, Shota Imanaga=684858."
+          },
+          "response": []
+        },
+        {
+          "name": "Compute Derived Stats from Game Logs (Pitchers)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"season\": 2026\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/compute-pitcher-derived-from-logs",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "compute-pitcher-derived-from-logs"]
+            },
+            "description": "Compute rolling window pitcher derived stats (ERA, WHIP, FIP, K%, BB%, etc.) from stored pitcher game logs."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Batter Game Logs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/game-logs/665742?season=2026",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "game-logs", "665742"],
+              "query": [
+                { "key": "season", "value": "2026" }
+              ]
+            },
+            "description": "Get raw game-by-game logs for a batter with running totals for validation. Example: `665742` = Juan Soto."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Pitcher Game Logs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/pitcher-game-logs/676979?season=2026",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "pitcher-game-logs", "676979"],
+              "query": [
+                { "key": "season", "value": "2026" }
+              ]
+            },
+            "description": "Get raw game-by-game logs for a pitcher with running ERA/WHIP totals for validation. Example: `676979` = Garrett Crochet."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Batter Derived Stats",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/derived-stats/665742?season=2026",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "derived-stats", "665742"],
+              "query": [
+                { "key": "season", "value": "2026" }
+              ]
+            },
+            "description": "Inspect the full derived stats record for a batter including reliability flags and null indicators. Example: `665742` = Juan Soto."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Pitcher Derived Stats",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/pitcher-derived-stats/676979?season=2026",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "pitcher-derived-stats", "676979"],
+              "query": [
+                { "key": "season", "value": "2026" }
+              ]
+            },
+            "description": "Inspect the full derived stats record for a pitcher including ERA/WHIP/FIP reliability flags. Example: `676979` = Garrett Crochet."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Pitcher Score",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/pitcher-score/676979?season=2026",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "pitcher-score", "676979"],
+              "query": [
+                { "key": "season", "value": "2026" }
+              ]
+            },
+            "description": "Compute and return the composite pitcher score. Example: `676979` = Garrett Crochet."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Pitcher Simulation",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/pitcher-simulation/676979?season=2026&runs=5000&horizon=start",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "pitcher-simulation", "676979"],
+              "query": [
+                { "key": "season", "value": "2026" },
+                { "key": "runs", "value": "5000" },
+                { "key": "horizon", "value": "start", "description": "start or week" },
+                { "key": "randomSeed", "value": "", "disabled": true, "description": "Optional integer for reproducible results" }
+              ]
+            },
+            "description": "Run a Monte Carlo simulation for a pitcher and view risk-adjusted projections. Example: `676979` = Garrett Crochet."
+          },
+          "response": []
+        },
+        {
+          "name": "Validate Player ID",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mlbamId\": \"665742\",\n  \"name\": \"Juan Soto\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/validate-player-id",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "validate-player-id"]
+            },
+            "description": "Verify that an MLBAM ID matches the expected player name via the MLB Stats API. Returns suggestions if the ID is wrong."
+          },
+          "response": []
+        },
+        {
+          "name": "Validate Player Batch",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"players\": [\n    { \"mlbamId\": \"673237\", \"name\": \"Yainer Diaz\" },\n    { \"mlbamId\": \"686469\", \"name\": \"Vinnie Pasquantino\" },\n    { \"mlbamId\": \"543760\", \"name\": \"Marcus Semien\" },\n    { \"mlbamId\": \"656305\", \"name\": \"Matt Chapman\" },\n    { \"mlbamId\": \"665742\", \"name\": \"Juan Soto\" },\n    { \"mlbamId\": \"694817\", \"name\": \"Gunnar Henderson\" },\n    { \"mlbamId\": \"660670\", \"name\": \"Bobby Witt Jr.\" },\n    { \"mlbamId\": \"676979\", \"name\": \"Garrett Crochet\" },\n    { \"mlbamId\": \"650911\", \"name\": \"Cristopher Sanchez\" },\n    { \"mlbamId\": \"684858\", \"name\": \"Shota Imanaga\" }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/validate-player-batch",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "validate-player-batch"]
+            },
+            "description": "Validate up to 50 MLBAM ID–name pairs in a single request. Returns a pass/fail for each and the actual MLB API name."
+          },
+          "response": []
+        },
+        {
+          "name": "Ingest Player (Gated)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mlbamId\": \"665742\",\n  \"season\": 2026\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/ingest-player-gated",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "ingest-player-gated"]
+            },
+            "description": "Ingest a single player with mandatory MLB API identity verification before writing data."
+          },
+          "response": []
+        },
+        {
+          "name": "Recommend Waiver Pickup",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mlbamId\": \"694817\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/recommend-waiver",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "recommend-waiver"]
+            },
+            "description": "Get a waiver pickup recommendation for a single player with verified identity. Example: `694817` = Gunnar Henderson."
+          },
+          "response": []
+        },
+        {
+          "name": "List Verified Players",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/verified-players",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "verified-players"]
+            },
+            "description": "List all players in the verified identity registry."
+          },
+          "response": []
+        },
+        {
+          "name": "Run DB Migration – Player Game Logs",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/migrate-game-logs",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "migrate-game-logs"]
+            },
+            "description": "Create the `player_game_logs` table if it does not exist. Safe to run multiple times (uses IF NOT EXISTS)."
+          },
+          "response": []
+        },
+        {
+          "name": "Run DB Migration – Verified Players",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/migrate-verified-players",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "migrate-verified-players"]
+            },
+            "description": "Create the `verified_players` table if it does not exist. Safe to run multiple times."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
