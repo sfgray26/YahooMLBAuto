@@ -75,9 +75,7 @@ export interface PitcherOutcomeDistribution {
 
 // Component state for a single plate appearance outcome
 interface PAOutcome {
-  type: 'K' | 'BB' | 'HBP' | 'GB' | 'FB' | 'LD' | 'HR';
-  baseAdvances: number;  // How many bases the batter got
-  runsScored: number;    // Runs scored on this PA
+  type: 'K' | 'BB' | 'HBP' | 'OUT' | '1B' | '2B' | '3B' | 'HR';
 }
 
 // State of a single simulated appearance/start
@@ -111,6 +109,10 @@ function createRNG(seed: number): () => number {
   };
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
 // ============================================================================
 // Component Models
 // ============================================================================
@@ -125,26 +127,43 @@ function simulateInnings(
   score: PitcherScore,
   rng: () => number
 ): number {
-  // Base innings from workload score
   const workloadFactor = score.components.workload / 100;  // 0-1
-  
-  // Expected innings based on role
-  let baseInnings = score.role.currentRole === 'SP' ? 5.5 :
-                    score.role.currentRole === 'SWING' ? 4.0 :
-                    score.role.currentRole === 'CL' ? 1.0 : 1.5;
-  
-  // Adjust for workload (workhorses go deeper)
-  baseInnings *= (0.8 + workloadFactor * 0.4);  // 0.8x to 1.2x multiplier
-  
-  // Volatility in innings (some starts are short)
-  const volatility = 1.0 + (rng() - 0.5) * 0.5;  // ±25% variance
+  const recentAppearances = Math.max(
+    1,
+    score.role.currentRole === 'SP'
+      ? features.volume.gamesStartedLast30 || features.volume.appearancesLast30
+      : features.volume.appearancesLast30
+  );
+  const recentInningsPerAppearance = recentAppearances > 0
+    ? features.volume.inningsPitchedLast30 / recentAppearances
+    : null;
+
+  let baselineInnings = score.role.currentRole === 'SP' ? 5.5 :
+                        score.role.currentRole === 'SWING' ? 3.5 :
+                        score.role.currentRole === 'CL' ? 1.0 : 1.25;
+
+  if (recentInningsPerAppearance !== null && Number.isFinite(recentInningsPerAppearance) && recentInningsPerAppearance > 0) {
+    baselineInnings = (baselineInnings * 0.35) + (recentInningsPerAppearance * 0.65);
+  }
+
+  let baseInnings = baselineInnings * (0.88 + workloadFactor * 0.24);
+
+  const consistency = clamp(features.volatility.consistencyScore || 50, 25, 90);
+  const variancePct = score.role.currentRole === 'SP'
+    ? 0.10 + ((75 - consistency) / 400)
+    : 0.18 + ((75 - consistency) / 300);
+  const volatility = 1.0 + ((rng() - 0.5) * 2 * variancePct);
   let innings = baseInnings * volatility;
   
   // Hard floors/ceilings based on role
   if (score.role.currentRole === 'SP') {
-    innings = Math.max(3.0, Math.min(8.0, innings));
+    innings = Math.max(4.0, Math.min(8.0, innings));
   } else if (score.role.currentRole === 'CL') {
     innings = Math.max(0.1, Math.min(1.5, innings));
+  } else if (score.role.currentRole === 'RP') {
+    innings = Math.max(0.2, Math.min(2.2, innings));
+  } else {
+    innings = Math.max(1.0, Math.min(5.0, innings));
   }
   
   return Math.round(innings * 3) / 3;  // Round to thirds
@@ -157,43 +176,48 @@ function getPAOutcomeProbabilities(
   features: PitcherDerivedFeatures
 ): Map<string, number> {
   const rates = features.rates;
-  
-  // Base probabilities (MLB averages as fallback)
-  const kRate = rates.strikeoutRateLast30 ?? 0.22;
-  const bbRate = rates.walkRateLast30 ?? 0.08;
-  const swStrRate = rates.swingingStrikeRate ?? 0.10;
-  const gbRatio = rates.gbRatio ?? 0.45;
-  
-  // Estimate hit rate from WHIP (approximate)
-  const whip = rates.whipLast30 ?? 1.30;
-  const hitRate = Math.max(0.15, Math.min(0.30, (whip - bbRate) * 0.25));
-  
-  // HR rate from HR/9 (approximate)
-  const hrPer9 = rates.hrPer9 ?? 1.2;
-  const hrRate = (hrPer9 / 27) * 0.8;  // Convert to per-PA rate (rough)
-  
-  // Remaining is balls in play
-  const bipRate = Math.max(0, 1 - kRate - bbRate - 0.01);  // 1% HBP estimate
-  
-  // Break down BIP into types
-  const gbRate = bipRate * gbRatio;
-  const fbRate = bipRate * (1 - gbRatio) * 0.6;  // 60% of non-GB are FB
-  const ldRate = bipRate * (1 - gbRatio) * 0.4;  // 40% are LD
-  
-  // HR comes from FB
-  const hrFromFb = Math.min(hrRate, fbRate * 0.12);  // ~12% of FB are HR
-  const fbRateNoHr = fbRate - hrFromFb;
-  
+  const battersPerInning = 4.25;
+  const kRate = clamp(rates.strikeoutRateLast30 ?? 0.22, 0.12, 0.40);
+  const bbRate = clamp(rates.walkRateLast30 ?? 0.08, 0.03, 0.15);
+  const hbpRate = 0.008;
+  const whip = clamp(rates.whipLast30 ?? 1.30, 0.90, 1.75);
+  const rawHitRate = clamp((whip / battersPerInning) - bbRate, 0.10, 0.30);
+  const maxHitBudget = Math.max(0.08, 1 - kRate - bbRate - hbpRate - 0.48);
+  const hitRate = Math.min(rawHitRate, maxHitBudget);
+
+  const rawHrRate = clamp((rates.hrPer9 ?? 1.1) / (battersPerInning * 9), 0.005, 0.04);
+  const hrRate = Math.min(rawHrRate, hitRate * 0.22);
+  const nonHrHitRate = Math.max(0, hitRate - hrRate);
+
+  const gbRatioMetric = rates.gbRatio ?? 0.95;
+  const gbFraction = clamp(gbRatioMetric / (1 + gbRatioMetric), 0.30, 0.60);
+  const airFraction = 1 - gbFraction;
+
+  const tripleShare = clamp(0.01 + airFraction * 0.015, 0.01, 0.03);
+  const doubleShare = clamp(0.17 + airFraction * 0.08, 0.14, 0.28);
+  const singleShare = Math.max(0, 1 - doubleShare - tripleShare);
+
+  const singleRate = nonHrHitRate * singleShare;
+  const doubleRate = nonHrHitRate * doubleShare;
+  const tripleRate = nonHrHitRate * tripleShare;
+  const outRate = Math.max(0, 1 - kRate - bbRate - hbpRate - singleRate - doubleRate - tripleRate - hrRate);
+
   const probs = new Map<string, number>([
     ['K', kRate],
     ['BB', bbRate],
-    ['HBP', 0.01],
-    ['GB', gbRate],
-    ['FB', fbRateNoHr],
-    ['LD', ldRate],
-    ['HR', hrFromFb],
+    ['HBP', hbpRate],
+    ['1B', singleRate],
+    ['2B', doubleRate],
+    ['3B', tripleRate],
+    ['HR', hrRate],
+    ['OUT', outRate],
   ]);
-  
+
+  const total = Array.from(probs.values()).reduce((sum, value) => sum + value, 0);
+  for (const [key, value] of probs) {
+    probs.set(key, value / total);
+  }
+
   return probs;
 }
 
@@ -213,79 +237,108 @@ function simulatePA(
       // Determine outcome details based on type
       switch (type) {
         case 'K':
-          return { type: 'K', baseAdvances: 0, runsScored: 0 };
+          return { type: 'K' };
         case 'BB':
-          return { type: 'BB', baseAdvances: 1, runsScored: 0 };
+          return { type: 'BB' };
         case 'HBP':
-          return { type: 'HBP', baseAdvances: 1, runsScored: 0 };
-        case 'GB':
-          // Ground balls: mostly outs, some singles, occasional double
-          const gbRoll = rng();
-          if (gbRoll < 0.75) return { type: 'GB', baseAdvances: 0, runsScored: 0 };  // Out
-          else if (gbRoll < 0.95) return { type: 'GB', baseAdvances: 1, runsScored: 0 };  // Single
-          else return { type: 'GB', baseAdvances: 2, runsScored: 0 };  // Double
-        case 'FB':
-          // Fly balls: mix of outs and extra bases
-          const fbRoll = rng();
-          if (fbRoll < 0.70) return { type: 'FB', baseAdvances: 0, runsScored: 0 };  // Out
-          else if (fbRoll < 0.85) return { type: 'FB', baseAdvances: 1, runsScored: 0 };  // Single
-          else if (fbRoll < 0.95) return { type: 'FB', baseAdvances: 2, runsScored: 0 };  // Double
-          else return { type: 'FB', baseAdvances: 3, runsScored: 0 };  // Triple (rare)
-        case 'LD':
-          // Line drives: more likely to be hits
-          const ldRoll = rng();
-          if (ldRoll < 0.35) return { type: 'LD', baseAdvances: 0, runsScored: 0 };  // Out
-          else if (ldRoll < 0.80) return { type: 'LD', baseAdvances: 1, runsScored: 0 };  // Single
-          else if (ldRoll < 0.95) return { type: 'LD', baseAdvances: 2, runsScored: 0 };  // Double
-          else return { type: 'LD', baseAdvances: 3, runsScored: 0 };  // Triple
+          return { type: 'HBP' };
+        case '1B':
+          return { type: '1B' };
+        case '2B':
+          return { type: '2B' };
+        case '3B':
+          return { type: '3B' };
         case 'HR':
-          return { type: 'HR', baseAdvances: 4, runsScored: 0 };  // Runs calculated separately
+          return { type: 'HR' };
+        case 'OUT':
+          return { type: 'OUT' };
         default:
-          return { type: 'GB', baseAdvances: 0, runsScored: 0 };
+          return { type: 'OUT' };
       }
     }
   }
   
-  return { type: 'GB', baseAdvances: 0, runsScored: 0 };
+   return { type: 'OUT' };
 }
 
-/**
- * Simulate base runners and runs scored.
- * Simple base state machine.
- */
-function simulateRuns(
-  outcomes: PAOutcome[],
-  rng: () => number
-): { runs: number; hits: number } {
-  // Base state: 0 = empty, 1 = runner on 1st, etc.
-  let bases = 0;
+interface BaseState {
+  first: boolean;
+  second: boolean;
+  third: boolean;
+}
+
+function countRunners(state: BaseState): number {
+  return Number(state.first) + Number(state.second) + Number(state.third);
+}
+
+function advanceOnWalk(state: BaseState): number {
   let runs = 0;
-  let hits = 0;
-  
-  for (const outcome of outcomes) {
-    if (outcome.type === 'HR') {
-      // Home run scores all runners + batter
-      runs += 1 + (bases > 0 ? 1 : 0) + (bases > 1 ? 1 : 0) + (bases > 2 ? 1 : 0);
-      bases = 0;
-      hits++;
-    } else if (outcome.baseAdvances > 0) {
-      // Hit or walk - advance runners
-      hits++;
-      
-      // Simplified: advance all runners by baseAdvances
-      // If runner would score, increment runs
-      if (bases >= 4 - outcome.baseAdvances && bases > 0) {
-        runs += Math.min(3, bases === 7 ? 3 : bases >= 4 ? 2 : 1);
-      }
-      
-      // Update bases (simplified model)
-      bases = (bases << outcome.baseAdvances) | (1 << (outcome.baseAdvances - 1));
-      bases = bases & 0x7;  // Keep only 3 bases
-    }
-    // Outs just clear the base state eventually (simplified)
+  if (state.first && state.second && state.third) {
+    runs++;
   }
-  
-  return { runs, hits };
+
+  const newThird = state.third || (state.second && state.first);
+  const newSecond = state.second || state.first;
+
+  state.third = newThird;
+  state.second = newSecond;
+  state.first = true;
+
+  return runs;
+}
+
+function advanceOnSingle(state: BaseState, rng: () => number): number {
+  let runs = state.third ? 1 : 0;
+  let newThird = false;
+  let newSecond = false;
+
+  if (state.second) {
+    if (!state.first || rng() < 0.6) runs++;
+    else newThird = true;
+  }
+
+  if (state.first) {
+    if (rng() < 0.28) newThird = true;
+    else newSecond = true;
+  }
+
+  state.first = true;
+  state.second = newSecond;
+  state.third = newThird;
+
+  return runs;
+}
+
+function advanceOnDouble(state: BaseState, rng: () => number): number {
+  let runs = Number(state.third) + Number(state.second);
+  let newThird = false;
+
+  if (state.first) {
+    if (rng() < 0.55) runs++;
+    else newThird = true;
+  }
+
+  state.first = false;
+  state.second = true;
+  state.third = newThird;
+
+  return runs;
+}
+
+function advanceOnTriple(state: BaseState): number {
+  const runs = countRunners(state);
+  state.first = false;
+  state.second = false;
+  state.third = true;
+  return runs;
+}
+
+function advanceOnHomeRun(state: BaseState): number {
+  const runs = countRunners(state) + 1;
+  state.first = false;
+  state.second = false;
+  state.third = false;
+  return runs;
 }
 
 /**
@@ -298,15 +351,8 @@ function simulateAppearance(
   probs: Map<string, number>,
   rng: () => number
 ): PitcherAppearance {
-  // 1. Simulate innings
   const innings = simulateInnings(features, score, rng);
-  
-  // 2. Simulate plate appearances (approx 4.3 BF per inning)
-  const bfPerInning = 4.3;
-  const targetBF = Math.round(innings * bfPerInning);
-  
-  // 3. Simulate each PA
-  const outcomes: PAOutcome[] = [];
+  const targetOuts = Math.max(3, Math.round(innings * 3));
   let battersFaced = 0;
   let outs = 0;
   let strikeouts = 0;
@@ -314,56 +360,75 @@ function simulateAppearance(
   let hits = 0;
   let homeRuns = 0;
   let pitches = 0;
-  
-  while (battersFaced < targetBF && outs < Math.floor(innings * 3)) {
+  let runs = 0;
+  const bases: BaseState = { first: false, second: false, third: false };
+  const maxBattersFaced = targetOuts + 24;
+
+  while (outs < targetOuts && battersFaced < maxBattersFaced) {
     const outcome = simulatePA(probs, rng);
-    outcomes.push(outcome);
     battersFaced++;
     
-    // Track stats
-    if (outcome.type === 'K') {
-      strikeouts++;
-      outs++;
-      pitches += rng() < 0.5 ? 3 : 4;  // Ks take 3-4 pitches
-    } else if (outcome.type === 'BB' || outcome.type === 'HBP') {
-      walks++;
-      pitches += rng() < 0.5 ? 4 : 5;  // BBs take 4-5 pitches
-    } else if (outcome.type === 'HR') {
-      homeRuns++;
-      hits++;
-      pitches += rng() < 0.5 ? 2 : 3;  // HRs are quick
-    } else {
-      // BIP
-      hits += outcome.baseAdvances > 0 ? 1 : 0;
-      outs += outcome.baseAdvances === 0 ? 1 : 0;
-      pitches += rng() < 0.5 ? 2 : 3;  // BIP takes 2-3 pitches
+    switch (outcome.type) {
+      case 'K':
+        strikeouts++;
+        outs++;
+        pitches += rng() < 0.65 ? 3 : 4;
+        break;
+      case 'OUT':
+        outs++;
+        pitches += rng() < 0.55 ? 2 : 3;
+        break;
+      case 'BB':
+        walks++;
+        runs += advanceOnWalk(bases);
+        pitches += rng() < 0.45 ? 4 : 5;
+        break;
+      case 'HBP':
+        runs += advanceOnWalk(bases);
+        pitches += 3;
+        break;
+      case '1B':
+        hits++;
+        runs += advanceOnSingle(bases, rng);
+        pitches += rng() < 0.55 ? 2 : 3;
+        break;
+      case '2B':
+        hits++;
+        runs += advanceOnDouble(bases, rng);
+        pitches += rng() < 0.55 ? 2 : 3;
+        break;
+      case '3B':
+        hits++;
+        runs += advanceOnTriple(bases);
+        pitches += 3;
+        break;
+      case 'HR':
+        hits++;
+        homeRuns++;
+        runs += advanceOnHomeRun(bases);
+        pitches += rng() < 0.55 ? 2 : 3;
+        break;
     }
   }
-  
-  // 4. Calculate runs from base state
-  const { runs } = simulateRuns(outcomes, rng);
-  const earnedRuns = Math.round(runs * 0.9);  // ~90% are earned
-  
-  // 5. Determine outcomes
-  const qualityStart = innings >= 6 && earnedRuns <= 3;
+
+  const completedInnings = outs / 3;
+  const earnedRuns = runs;
+
+  const qualityStart = completedInnings >= 6 && earnedRuns <= 3;
   const blowUp = earnedRuns >= 5;
   
-  // Win probability (simplified - based on runs allowed)
   const win = runs <= 3 && rng() < 0.6;  // 60% win if allows <= 3 runs
   
-  // Save probability (for closers)
   const save = score.role.isCloser && 
-               innings >= 0.2 && 
-               runs <= (innings <= 1 ? 1 : 3) &&
+               completedInnings >= 0.2 && 
+               runs <= (completedInnings <= 1 ? 1 : 3) &&
                rng() < 0.7;
   
-  // 6. Calculate fantasy points (standard 5x5 + holds)
-  // Standard points: IP=3, K=1, W=5, L=-3, SV=5, HLD=4, ER=-2, H=-0.5, BB=-0.5
-  const ipPoints = innings * 3;
+  const ipPoints = completedInnings * 3;
   const kPoints = strikeouts * 1;
   const wPoints = win ? 5 : 0;
   const svPoints = save ? 5 : 0;
-  const hldPoints = (score.role.holdsEligible && !save && innings >= 0.2 && runs <= 1) ? 4 : 0;
+  const hldPoints = (score.role.holdsEligible && !save && completedInnings >= 0.2 && runs <= 1) ? 4 : 0;
   const erPoints = -earnedRuns * 2;
   const hPoints = -hits * 0.5;
   const bbPoints = -walks * 0.5;
@@ -371,7 +436,7 @@ function simulateAppearance(
   const fantasyPoints = ipPoints + kPoints + wPoints + svPoints + hldPoints + erPoints + hPoints + bbPoints;
   
   return {
-    innings,
+    innings: completedInnings,
     battersFaced,
     strikeouts,
     walks,

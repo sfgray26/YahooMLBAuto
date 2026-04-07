@@ -174,4 +174,85 @@ describe('pitcher pipeline helpers', () => {
     expect(sim1.p50).toBe(sim2.p50);
     expect(sim1.p90).toBe(sim2.p90);
   });
+
+  it('keeps stronger starters materially safer than weak run-prevention profiles', () => {
+    const strongStarter = makeFeatures({
+      playerId: 'strong-sp',
+      playerMlbamId: '650911',
+      volume: {
+        ...makeFeatures().volume,
+        appearancesLast30: 2,
+        gamesStartedLast30: 2,
+        inningsPitchedLast30: 11.33333333333333,
+        battersFacedLast30: 45,
+        pitchesPerInning: 16.2,
+      },
+      rates: {
+        ...makeFeatures().rates,
+        eraLast30: 0.79,
+        whipLast30: 0.97,
+        fipLast30: 1.16,
+        xfipLast30: 1.16,
+        strikeoutRateLast30: 0.378,
+        walkRateLast30: 0.089,
+        kToBBRatioLast30: 4.25,
+        gbRatio: 0.59,
+        hrPer9: 0,
+      },
+    });
+
+    const weakStarter = makeFeatures({
+      playerId: 'weak-sp',
+      playerMlbamId: '700000',
+      volume: {
+        ...makeFeatures().volume,
+        appearancesLast30: 4,
+        gamesStartedLast30: 4,
+        inningsPitchedLast30: 19,
+        battersFacedLast30: 92,
+        pitchesPerInning: 18.4,
+      },
+      rates: {
+        ...makeFeatures().rates,
+        eraLast30: 5.9,
+        whipLast30: 1.58,
+        fipLast30: 5.3,
+        xfipLast30: 4.95,
+        strikeoutRateLast30: 0.18,
+        walkRateLast30: 0.112,
+        kToBBRatioLast30: 1.6,
+        gbRatio: 0.72,
+        hrPer9: 1.8,
+      },
+      volatility: {
+        ...makeFeatures().volatility,
+        qualityStartRate: 0.15,
+        blowUpRate: 0.35,
+        consistencyScore: 38,
+      },
+      stabilization: {
+        ...makeFeatures().stabilization,
+        eraReliable: false,
+        whipReliable: false,
+        fipReliable: false,
+      },
+    });
+
+    const strongSimulation = simulatePitcherOutcome(strongStarter, scorePitcher(strongStarter), {
+      runs: 1500,
+      horizon: 'start',
+      randomSeed: 4242,
+    });
+    const weakSimulation = simulatePitcherOutcome(weakStarter, scorePitcher(weakStarter), {
+      runs: 1500,
+      horizon: 'start',
+      randomSeed: 4242,
+    });
+
+    expect(strongSimulation.componentStats.avgEarnedRuns).toBeLessThan(weakSimulation.componentStats.avgEarnedRuns);
+    expect(strongSimulation.blowUpRisk).toBeLessThan(weakSimulation.blowUpRisk);
+    expect(strongSimulation.qualityStartRate).toBeGreaterThan(weakSimulation.qualityStartRate);
+    expect(strongSimulation.componentStats.avgEarnedRuns).toBeLessThan(3.5);
+    expect(strongSimulation.blowUpRisk).toBeLessThan(0.35);
+  });
 });
