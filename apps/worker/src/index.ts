@@ -43,6 +43,7 @@ export {
   ingestPlayerBatch,
   type GatedIngestionResult,
 } from './verification/gatedIngestion.js';
+export { runVerifiedPlayersDailyIngestion } from './daily-ingest.js';
 
 // Waiver Safety (guaranteed verified recommendations)
 export {

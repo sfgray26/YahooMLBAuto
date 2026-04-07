@@ -6,7 +6,7 @@
  */
 
 import type { FastifyInstance, FastifyPluginOptions } from 'fastify';
-import { runDailyIngestion, validateIngestion } from '@cbb/worker';
+import { runDailyIngestion, runVerifiedPlayersDailyIngestion, validateIngestion } from '@cbb/worker';
 import {
   ingestGameLogsForPlayers,
   batchComputeDerivedStatsFromGameLogs,
@@ -119,6 +119,66 @@ export async function adminRoutes(
         message: 'Fatal error during ingestion',
         season: targetSeason,
         durationMs,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  // ==========================================================================
+  // POST /admin/trigger-daily-ingest
+  // Run full verified-player hitter + pitcher daily ingest pipeline
+  // ==========================================================================
+  fastify.post('/trigger-daily-ingest', async (request, reply) => {
+    const { season } = request.body as { season?: number };
+    const targetSeason = season || new Date().getFullYear();
+
+    console.log(`[ADMIN] Triggering verified-player daily ingest for season ${targetSeason}...`);
+
+    try {
+      const result = await runVerifiedPlayersDailyIngestion(targetSeason);
+
+      if (!result.success) {
+        return reply.status(500).send({
+          success: false,
+          message: 'Verified-player daily ingest failed validation',
+          season: targetSeason,
+          durationMs: result.durationMs,
+          errors: result.errors,
+          validation: result.validation,
+          stats: {
+            hitterPlayersProcessed: result.hitterPlayersProcessed,
+            pitcherPlayersProcessed: result.pitcherPlayersProcessed,
+            hitterGamesIngested: result.hitterGamesIngested,
+            pitcherGamesIngested: result.pitcherGamesIngested,
+            derivedStatsComputed: result.derivedStatsComputed,
+            pitcherDerivedStatsComputed: result.pitcherDerivedStatsComputed,
+            unsupportedPlayersSkipped: result.unsupportedPlayersSkipped,
+          },
+        });
+      }
+
+      return {
+        success: true,
+        message: 'Verified-player daily ingest completed successfully',
+        season: targetSeason,
+        durationMs: result.durationMs,
+        validation: result.validation,
+        stats: {
+          hitterPlayersProcessed: result.hitterPlayersProcessed,
+          pitcherPlayersProcessed: result.pitcherPlayersProcessed,
+          hitterGamesIngested: result.hitterGamesIngested,
+          pitcherGamesIngested: result.pitcherGamesIngested,
+          derivedStatsComputed: result.derivedStatsComputed,
+          pitcherDerivedStatsComputed: result.pitcherDerivedStatsComputed,
+          unsupportedPlayersSkipped: result.unsupportedPlayersSkipped,
+        },
+      };
+    } catch (error) {
+      console.error('[ADMIN] Verified-player daily ingest error:', error);
+      return reply.status(500).send({
+        success: false,
+        message: 'Fatal error during verified-player daily ingest',
+        season: targetSeason,
         error: error instanceof Error ? error.message : String(error),
       });
     }

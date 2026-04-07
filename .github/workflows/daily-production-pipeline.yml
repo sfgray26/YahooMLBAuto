@@ -41,41 +41,14 @@ jobs:
             -d "{\"season\":${{ steps.season.outputs.season }},\"dryRun\":false}" > /tmp/trigger-ingestion.json
           cat /tmp/trigger-ingestion.json
 
-      - name: Trigger hitter game log ingestion
+      - name: Trigger verified-player daily ingest
         run: |
           set -euo pipefail
           curl --fail --silent --show-error \
-            -X POST "$PRODUCTION_API_BASE_URL/admin/ingest-game-logs" \
+            -X POST "$PRODUCTION_API_BASE_URL/admin/trigger-daily-ingest" \
             -H "Content-Type: application/json" \
             -d "{\"season\":${{ steps.season.outputs.season }}}" > /tmp/ingest-game-logs.json
           cat /tmp/ingest-game-logs.json
-
-      - name: Trigger hitter derived computation
-        run: |
-          set -euo pipefail
-          curl --fail --silent --show-error \
-            -X POST "$PRODUCTION_API_BASE_URL/admin/compute-derived-from-logs" \
-            -H "Content-Type: application/json" \
-            -d "{\"season\":${{ steps.season.outputs.season }}}" > /tmp/compute-derived.json
-          cat /tmp/compute-derived.json
-
-      - name: Trigger pitcher game log ingestion
-        run: |
-          set -euo pipefail
-          curl --fail --silent --show-error \
-            -X POST "$PRODUCTION_API_BASE_URL/admin/ingest-pitcher-game-logs" \
-            -H "Content-Type: application/json" \
-            -d "{\"season\":${{ steps.season.outputs.season }}}" > /tmp/ingest-pitcher-game-logs.json
-          cat /tmp/ingest-pitcher-game-logs.json
-
-      - name: Trigger pitcher derived computation
-        run: |
-          set -euo pipefail
-          curl --fail --silent --show-error \
-            -X POST "$PRODUCTION_API_BASE_URL/admin/compute-pitcher-derived-from-logs" \
-            -H "Content-Type: application/json" \
-            -d "{\"season\":${{ steps.season.outputs.season }}}" > /tmp/compute-pitcher-derived.json
-          cat /tmp/compute-pitcher-derived.json
 
       - name: Verify production counts
         run: |
