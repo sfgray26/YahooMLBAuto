@@ -86,7 +86,7 @@ export async function ingestPlayer(
     // =========================================================================
     console.log(`[${traceId}] STEP 3: Ingesting game logs...`);
     const gamesIngested = identity.role === 'pitcher'
-      ? await ingestVerifiedPitcher(mlbamId, season, traceId)
+      ? await ingestVerifiedPitcher(mlbamId, season)
       : await ingestVerifiedHitter(mlbamId, season);
 
     console.log(`[${traceId}] SUCCESS: Ingested ${gamesIngested} games for ${identity.fullName}`);
