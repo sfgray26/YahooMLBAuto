@@ -5,6 +5,7 @@
  * Runs daily to:
  * 1. Fetch latest game logs from balldontlie for all verified players
  * 2. Compute derived stats (7/14/30 day windows)
+ * 3. Validate the pipeline results automatically
  * 
  * Designed to run as a cron job in Railway.
  */
@@ -15,6 +16,7 @@ import { batchComputeDerivedStatsFromGameLogs } from './derived/fromGameLogs.js'
 import { classifyPlayerRole } from './verification/playerIdentity.js';
 import { ingestPitcherGameLogsForPlayers } from './pitchers/gameLogs.js';
 import { batchComputePitcherDerivedStatsFromGameLogs } from './pitchers/fromGameLogs.js';
+import { validatePipelineRun, type DerivedRateSample } from './validation/pipeline.js';
 
 const logger = {
   info: (msg: string, meta?: Record<string, unknown>) => console.log(`[DAILY-INGEST] ${msg}`, meta ? JSON.stringify(meta) : ''),
@@ -116,6 +118,66 @@ async function runDailyIngestion() {
     logger.info('Step 2b: Computing pitcher derived stats...');
     const pitcherDerivedResult = await batchComputePitcherDerivedStatsFromGameLogs(season, undefined, traceId);
 
+    // Step 3: Automated pipeline validation
+    logger.info('Step 3: Validating pipeline results...');
+
+    // Fetch a sample of derived stats for rate validation (up to 50 records)
+    let derivedSamples: DerivedRateSample[] = [];
+    try {
+      const rawSamples = await prisma.playerDerivedStats.findMany({
+        where: { season },
+        orderBy: { computedAt: 'desc' },
+        take: 50,
+        select: {
+          playerMlbamId: true,
+          battingAverageLast30: true,
+          onBasePctLast30: true,
+          sluggingPctLast30: true,
+          opsLast30: true,
+          isoLast30: true,
+          walkRateLast30: true,
+          strikeoutRateLast30: true,
+          gamesLast7: true,
+          gamesLast14: true,
+          gamesLast30: true,
+          plateAppearancesLast7: true,
+          plateAppearancesLast14: true,
+          plateAppearancesLast30: true,
+        },
+      });
+      derivedSamples = rawSamples as DerivedRateSample[];
+    } catch (sampleError) {
+      logger.error('Could not fetch derived stats samples for validation', {
+        error: sampleError instanceof Error ? sampleError.message : 'Unknown',
+      });
+    }
+
+    const validation = validatePipelineRun({
+      hitterIngestion: hitterIngestResult,
+      pitcherIngestion: pitcherIngestResult,
+      hitterDerived: derivedResult,
+      pitcherDerived: pitcherDerivedResult,
+      derivedSamples,
+    });
+
+    logger.info('Pipeline validation complete', {
+      valid: validation.valid,
+      summary: validation.summary,
+    });
+
+    for (const stage of validation.stages) {
+      if (!stage.valid) {
+        logger.error(`Validation stage FAILED: ${stage.stage}`, {
+          errors: stage.errors,
+          warnings: stage.warnings,
+        });
+      } else if (stage.warnings.length > 0) {
+        logger.info(`Validation stage passed with warnings: ${stage.stage}`, {
+          warnings: stage.warnings,
+        });
+      }
+    }
+
     const totalDurationMs = Date.now() - startTime;
 
     logger.info('=== DAILY INGESTION COMPLETE ===', {
@@ -126,11 +188,13 @@ async function runDailyIngestion() {
       pitcherGamesIngested: pitcherIngestResult.totalGames,
       derivedStatsComputed: derivedResult.processed,
       pitcherDerivedStatsComputed: pitcherDerivedResult.processed,
+      pipelineValid: validation.valid,
+      validationSummary: validation.summary,
       durationMs: totalDurationMs,
       errors: hitterIngestResult.errors.length + pitcherIngestResult.errors.length + derivedResult.errors.length + pitcherDerivedResult.errors.length
     });
 
-    process.exit(0);
+    process.exit(validation.valid ? 0 : 1);
   } catch (error) {
     logger.error('Daily ingestion failed', { error: error instanceof Error ? error.message : 'Unknown' });
     process.exit(1);
