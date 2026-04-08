@@ -126,14 +126,20 @@ export async function runVerifiedPlayersDailyIngestion(
   });
 
   const hitterPlayers = verifiedPlayers.filter(
-    (player: { position: string | null }) => classifyPlayerRole(player.position) === 'hitter'
+    (player: { position: string | null }) => {
+      const role = classifyPlayerRole(player.position);
+      return role === 'hitter' || role === 'two_way';
+    }
   );
   const pitcherPlayers = verifiedPlayers.filter(
-    (player: { position: string | null }) => classifyPlayerRole(player.position) === 'pitcher'
+    (player: { position: string | null }) => {
+      const role = classifyPlayerRole(player.position);
+      return role === 'pitcher' || role === 'two_way';
+    }
   );
   const unsupportedPlayersSkipped = verifiedPlayers.filter((player: { position: string | null }) => {
     const role = classifyPlayerRole(player.position);
-    return role === 'two_way' || role === 'unknown';
+    return role === 'unknown';
   }).length;
 
   const hitterIds = hitterPlayers.map((player: { mlbamId: string }) => player.mlbamId);

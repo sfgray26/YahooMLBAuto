@@ -33,6 +33,8 @@ const HITTER_POSITIONS = new Set([
   '2B',
   '3B',
   'SS',
+  'IF',
+  'INF',
   'LF',
   'CF',
   'RF',
@@ -41,6 +43,7 @@ const HITTER_POSITIONS = new Set([
   'UT',
   'UTIL',
 ]);
+const TWO_WAY_POSITIONS = new Set(['TWP', 'TWO-WAY PLAYER', 'TWO WAY PLAYER']);
 
 export function classifyPlayerRole(position: string | null | undefined): PlayerRole {
   if (!position) {
@@ -48,6 +51,10 @@ export function classifyPlayerRole(position: string | null | undefined): PlayerR
   }
 
   const normalized = position.trim().toUpperCase();
+
+  if (TWO_WAY_POSITIONS.has(normalized)) {
+    return 'two_way';
+  }
 
   if (normalized.includes('/') || normalized.includes(',')) {
     const parts = normalized
@@ -85,7 +92,8 @@ export function classifyPlayerRole(position: string | null | undefined): PlayerR
 }
 
 export function supportsHitterGameLogSourcing(position: string | null | undefined): boolean {
-  return classifyPlayerRole(position) === 'hitter';
+  const role = classifyPlayerRole(position);
+  return role === 'hitter' || role === 'two_way';
 }
 
 /**

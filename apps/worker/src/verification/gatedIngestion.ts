@@ -63,8 +63,8 @@ export async function ingestPlayer(
     const identity = verification.identity;
     console.log(`[${traceId}] GATEKEEPER PASSED: ${identity.fullName}`);
 
-    if (identity.role !== 'hitter' && identity.role !== 'pitcher') {
-      const error = `Player ${identity.fullName} (${mlbamId}) is classified as ${identity.role}; gated ingestion only supports hitters and pitchers.`;
+    if (identity.role !== 'hitter' && identity.role !== 'pitcher' && identity.role !== 'two_way') {
+      const error = `Player ${identity.fullName} (${mlbamId}) is classified as ${identity.role}; gated ingestion only supports hitters, pitchers, and two-way players.`;
       console.error(`[${traceId}] ROLE GATE REJECTED: ${error}`);
       return {
         success: false,
@@ -85,9 +85,11 @@ export async function ingestPlayer(
     // STEP 3: Now safe to ingest game logs
     // =========================================================================
     console.log(`[${traceId}] STEP 3: Ingesting game logs...`);
-    const gamesIngested = identity.role === 'pitcher'
-      ? await ingestVerifiedPitcher(mlbamId, season)
-      : await ingestVerifiedHitter(mlbamId, season);
+    const gamesIngested = identity.role === 'two_way'
+      ? await ingestVerifiedTwoWay(mlbamId, season)
+      : identity.role === 'pitcher'
+        ? await ingestVerifiedPitcher(mlbamId, season)
+        : await ingestVerifiedHitter(mlbamId, season);
 
     console.log(`[${traceId}] SUCCESS: Ingested ${gamesIngested} games for ${identity.fullName}`);
 
@@ -162,4 +164,16 @@ async function ingestVerifiedPitcher(
   }
 
   return result.totalGames;
+}
+
+async function ingestVerifiedTwoWay(
+  mlbamId: string,
+  season: number
+): Promise<number> {
+  const [hitterGames, pitcherGames] = await Promise.all([
+    ingestVerifiedHitter(mlbamId, season),
+    ingestVerifiedPitcher(mlbamId, season),
+  ]);
+
+  return hitterGames + pitcherGames;
 }

@@ -157,40 +157,120 @@ WORKER_CONCURRENCY=5
 ALLOW_MOCK_VALUATIONS=false
 ```
 
-## CI
+## CI / GitHub Actions
 
-GitHub Actions runs automatically on every push to `master` and on every pull request.
+Two separate workflows keep the build fast, secretless, and observable.
 
-### What the CI job checks
+---
+
+### 1 · PR CI (`ci.yml`)
+
+Runs on **every push to `master` and every pull request**.  
+No external credentials required — all checks are deterministic.
 
 | Step | Command | Notes |
 |------|---------|-------|
 | Lint | `pnpm lint` | ESLint across all workspaces |
 | Typecheck | `pnpm typecheck` | TypeScript strict check across all workspaces |
 | Unit tests | `pnpm test` | Vitest via Turborepo |
-| Scoring validation | `pnpm validate:scoring` | Pure-function validation, always runs |
-| Derived validation | `pnpm validate:derived` | Requires `DATABASE_URL` secret; skipped in CI if absent |
+| Scoring validation | `pnpm validate:scoring` | Pure-function, no DB required |
+| Derived validation | `pnpm validate:derived` | Skipped unless `DATABASE_URL` secret is set |
 
-### Running CI checks locally
+#### Running PR CI checks locally
 
 ```bash
-# Install dependencies
 pnpm install
 
-# Quality gates (same as CI)
+# Same gates as CI
 pnpm lint
 pnpm typecheck
 pnpm test
-
-# Data-pipeline validation (no DB required)
 pnpm validate:scoring
 
-# Full derived-layer validation (requires a running PostgreSQL instance)
+# Derived-layer validation (needs a running PostgreSQL instance)
 DATABASE_URL=postgresql://user:pass@localhost:5432/dbname pnpm validate:derived
 ```
 
-To enable derived-layer validation in GitHub Actions, add `DATABASE_URL` as a
-[repository secret](https://docs.github.com/en/actions/security-guides/encrypted-secrets).
+---
+
+### 2 · Pipeline E2E (`pipeline-e2e.yml`)
+
+Runs **all ingestion jobs, backfills, data tests, and validations** against real
+external APIs and a local Postgres/Redis instance (spun up via docker-compose).
+
+**Triggers:**
+- **Manual** – from the GitHub UI: Actions → *Pipeline E2E* → *Run workflow*
+- **Nightly** – automatically at 06:00 UTC every day
+
+**Does NOT trigger on pull requests.**
+
+#### Triggering manually from GitHub UI
+
+1. Open the repository on GitHub.
+2. Click the **Actions** tab.
+3. In the left sidebar select **Pipeline E2E**.
+4. Click **Run workflow** (top-right of the runs list).
+5. Choose a **mode**:
+   - `full` *(default)* – ingestion + game-log backfill + all tests + full UAT
+   - `smoke` – ingestion + `backfill:small` + core validations + `uat:simple`
+6. Click the green **Run workflow** button.
+
+Results and captured logs are available as a downloadable artifact named
+`pipeline-e2e-logs-<run-number>` (retained for 14 days).
+
+#### Pipeline E2E – Required secrets
+
+Add these under **Settings → Secrets and variables → Actions → Secrets**:
+
+| Secret name | Required | Description |
+|-------------|----------|-------------|
+| `BALLDONTLIE_API_KEY` | **Yes** | API key for [balldontlie.io](https://mlb.balldontlie.io/) MLB data (used by `data:ingest`, `test:balldontlie`, backfills) |
+| `MLB_API_KEY` | No | Optional MLB Stats API key for additional data sources |
+
+> **Note:** `DATABASE_URL` and `REDIS_URL` are **not** required as secrets for the
+> Pipeline E2E workflow — it spins up local Postgres and Redis via `docker-compose`
+> and sets these values automatically.
+
+#### Running the full pipeline locally
+
+```bash
+# 1. Start local infrastructure
+docker compose up -d postgres redis
+
+# 2. Run migrations
+pnpm db:migrate
+
+# 3. Ingestion
+BALLDONTLIE_API_KEY=your_key pnpm data:ingest
+pnpm data:compute
+
+# Worker-level pipeline
+cd apps/worker
+BALLDONTLIE_API_KEY=your_key pnpm ingest
+pnpm derive
+pnpm score
+cd ../..
+
+# 4. Backfills
+BALLDONTLIE_API_KEY=your_key pnpm backfill:small
+BALLDONTLIE_API_KEY=your_key pnpm backfill:game-logs   # heavy – optional
+
+# 5. Tests
+BALLDONTLIE_API_KEY=your_key pnpm test:balldontlie
+pnpm test:derived
+pnpm test:game-logs
+
+# 6. Validations
+pnpm validate:scoring
+pnpm validate:derived
+
+# 7. UAT
+pnpm uat:simple   # quick
+pnpm uat          # full
+
+# 8. Teardown
+docker compose down --volumes
+```
 
 ## License
 

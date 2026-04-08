@@ -23,12 +23,14 @@ export async function playerRoutes(
     const { date } = request.query as { date?: string };
 
     const targetDate = date ? new Date(date) : new Date();
+    const targetSeason = targetDate.getUTCFullYear();
     const dateStr = targetDate.toISOString().split('T')[0];
 
     // Get derived features first (these always exist if ingestion ran)
     const derivedFeatures = await prisma.playerDerivedStats.findFirst({
       where: {
         playerMlbamId: id,
+        season: targetSeason,
       },
       orderBy: {
         computedAt: 'desc',
@@ -49,6 +51,10 @@ export async function playerRoutes(
     });
 
     const verifiedIdentity = await loadVerifiedPlayerIdentity(id);
+    const canUseHitterFeatures = isValidHitterFeatureSnapshot(
+      verifiedIdentity?.position,
+      derivedFeatures
+    );
 
     // If no derived features and no valuation, player not found
     if (!derivedFeatures && !valuation) {
@@ -75,7 +81,7 @@ export async function playerRoutes(
               ? [verifiedIdentity.position]
               : [],
       },
-      features: derivedFeatures ? {
+      features: canUseHitterFeatures && derivedFeatures ? {
         computedAt: derivedFeatures.computedAt,
         volume: {
           gamesLast7: derivedFeatures.gamesLast7,
@@ -272,4 +278,34 @@ export async function playerRoutes(
       })),
     };
   });
+}
+
+function isValidHitterFeatureSnapshot(
+  position: string | null | undefined,
+  derived: {
+    gamesLast30: number;
+    plateAppearancesLast30: number;
+  } | null
+): boolean {
+  if (!derived || !position) {
+    return false;
+  }
+
+  const normalizedParts = position
+    .split(/[\/,]/)
+    .map((part) => part.trim().toUpperCase())
+    .filter(Boolean);
+
+  const hitterEligible = normalizedParts.some((part) =>
+    ['C', '1B', '2B', '3B', 'SS', 'IF', 'INF', 'LF', 'CF', 'RF', 'OF', 'DH', 'UT', 'UTIL', 'TWP'].includes(part)
+  );
+
+  if (!hitterEligible) {
+    return false;
+  }
+
+  return derived.gamesLast30 >= 0
+    && derived.gamesLast30 <= 30
+    && derived.plateAppearancesLast30 >= 0
+    && derived.plateAppearancesLast30 <= 200;
 }

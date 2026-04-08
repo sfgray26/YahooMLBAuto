@@ -15,6 +15,10 @@ import {
   getPitcherDerivedFeatures,
   scoreSinglePitcher,
   simulatePitcherOutcome,
+  verifyPlayerIdentity,
+  upsertVerifiedPlayer,
+  classifyPlayerRole,
+  ingestPlayer,
 } from '@cbb/worker';
 import { validatePlayerIdentity, validatePlayerBatch, suggestCorrectId } from '@cbb/worker';
 import { prisma } from '@cbb/infrastructure';
@@ -1114,6 +1118,100 @@ export async function adminRoutes(
         error: error instanceof Error ? error.message : String(error),
       });
     }
+  });
+
+  // ==========================================================================
+  // POST /admin/repair-verified-players
+  // Reverify player registry rows and optionally prune stale hitter-derived stats
+  // ==========================================================================
+  fastify.post<{
+    Body: {
+      mlbamIds: string[];
+      season?: number;
+      pruneNonHitters?: boolean;
+      reingest?: boolean;
+    };
+  }>('/repair-verified-players', async (request, reply) => {
+    const {
+      mlbamIds,
+      season,
+      pruneNonHitters = true,
+      reingest = true,
+    } = request.body;
+    const targetSeason = season || new Date().getFullYear();
+
+    if (!Array.isArray(mlbamIds) || mlbamIds.length === 0) {
+      return reply.status(400).send({
+        success: false,
+        error: 'mlbamIds must contain at least one player id',
+      });
+    }
+
+    const uniqueIds = [...new Set(mlbamIds.map((id) => id.trim()).filter(Boolean))];
+    const repaired: Array<Record<string, unknown>> = [];
+    const failures: Array<Record<string, unknown>> = [];
+
+    for (const mlbamId of uniqueIds) {
+      try {
+        const verification = await verifyPlayerIdentity(mlbamId);
+
+        if (!verification.valid || !verification.identity) {
+          failures.push({
+            mlbamId,
+            error: verification.error || 'Identity verification failed',
+          });
+          continue;
+        }
+
+        await upsertVerifiedPlayer(verification.identity);
+        const role = classifyPlayerRole(verification.identity.position);
+
+        let removedDerivedRows = 0;
+        if (pruneNonHitters && role !== 'hitter' && role !== 'two_way') {
+          const deleted = await prisma.playerDerivedStats.deleteMany({
+            where: {
+              playerMlbamId: mlbamId,
+              season: targetSeason,
+            },
+          });
+          removedDerivedRows = deleted.count;
+        }
+
+        let ingestResult: Record<string, unknown> | null = null;
+        if (reingest) {
+          const ingestion = await ingestPlayer(mlbamId, targetSeason);
+          ingestResult = {
+            success: ingestion.success,
+            gamesIngested: ingestion.gamesIngested ?? 0,
+            error: ingestion.error,
+          };
+        }
+
+        repaired.push({
+          mlbamId,
+          fullName: verification.identity.fullName,
+          team: verification.identity.team,
+          position: verification.identity.position,
+          role,
+          removedDerivedRows,
+          ingestResult,
+        });
+      } catch (error) {
+        failures.push({
+          mlbamId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    return {
+      success: failures.length === 0,
+      season: targetSeason,
+      repairedCount: repaired.length,
+      failedCount: failures.length,
+      repaired,
+      failures,
+    };
   });
 
   // ==========================================================================

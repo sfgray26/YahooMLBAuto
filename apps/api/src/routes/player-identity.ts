@@ -81,6 +81,8 @@ const HITTER_POSITIONS = new Set([
   '2B',
   '3B',
   'SS',
+  'IF',
+  'INF',
   'LF',
   'CF',
   'RF',
@@ -88,6 +90,7 @@ const HITTER_POSITIONS = new Set([
   'DH',
   'UT',
   'UTIL',
+  'TWP',
 ]);
 
 export async function loadVerifiedPlayerIdentity(
