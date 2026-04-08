@@ -240,7 +240,7 @@ export function validatePlayerRecord(player: PlayerRecordInput): SchemaValidatio
     for (const pos of player.positions) {
       if (!VALID_MLB_POSITIONS.has(pos)) {
         warnings.push(
-          `player [${player.playerMlbamId}]: unrecognised position code "${pos}"`
+          `player [${player.playerMlbamId}]: unrecognized position code "${pos}"`
         );
       }
     }

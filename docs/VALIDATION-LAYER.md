@@ -110,12 +110,12 @@ The `runMetadata` field is included in every `PlayerOutcomeDistribution` returne
 | `gamePk` | `string` | ✅ | Non-empty |
 | `gameDate` | `Date \| string` | ✅ | Must be parseable as a date |
 | `season` | `number` | ✅ | 1876–(current year + 5) |
-| `stats.atBats` | `number` | — | ≥ 0 |
-| `stats.hits` | `number` | — | ≥ 0 |
-| `stats.plateAppearances` | `number` | — | ≥ 0 and ≥ `atBats` |
-| `stats.totalBases` | `number` | — | ≥ `hits` |
-| `stats.homeRuns` | `number` | — | ≥ 0 |
-| `stats.doubles + triples + homeRuns` | composite | — | Must not exceed `hits` |
+| `stats.atBats` | `number` | if present | ≥ 0 |
+| `stats.hits` | `number` | if present | ≥ 0 |
+| `stats.plateAppearances` | `number` | if present | ≥ 0 and ≥ `atBats` |
+| `stats.totalBases` | `number` | if present | ≥ `hits` |
+| `stats.homeRuns` | `number` | if present | ≥ 0 |
+| `stats.doubles + triples + homeRuns` | composite | if all present | Must not exceed `hits` |
 
 ### Player Record
 
@@ -135,14 +135,14 @@ The `runMetadata` field is included in every `PlayerOutcomeDistribution` returne
 | `volume.gamesLast7/14/30` | `number` | ✅ | ≥ 0, monotonic (30 ≥ 14 ≥ 7) |
 | `volume.plateAppearancesLast7/14/30` | `number` | ✅ | ≥ 0, monotonic |
 | `volume.atBatsLast30` | `number` | ✅ | ≥ 0 and ≤ `plateAppearancesLast30` |
-| `rates.battingAverageLast30` | `number \| null` | — | [0, 1] |
-| `rates.onBasePctLast30` | `number \| null` | — | [0, 1] |
-| `rates.sluggingPctLast30` | `number \| null` | — | [0, 4] |
-| `rates.opsLast30` | `number \| null` | — | [0, 5] |
-| `rates.isoLast30` | `number \| null` | — | [0, 3] |
-| `rates.walkRateLast30` | `number \| null` | — | [0, 1] |
-| `rates.strikeoutRateLast30` | `number \| null` | — | [0, 1] |
-| `rates.babipLast30` | `number \| null` | — | [0, 1] |
+| `rates.battingAverageLast30` | `number \| null` | if present | [0, 1] |
+| `rates.onBasePctLast30` | `number \| null` | if present | [0, 1] |
+| `rates.sluggingPctLast30` | `number \| null` | if present | [0, 4] |
+| `rates.opsLast30` | `number \| null` | if present | [0, 5] |
+| `rates.isoLast30` | `number \| null` | if present | [0, 3] |
+| `rates.walkRateLast30` | `number \| null` | if present | [0, 1] |
+| `rates.strikeoutRateLast30` | `number \| null` | if present | [0, 1] |
+| `rates.babipLast30` | `number \| null` | if present | [0, 1] |
 
 ### Monte Carlo Output
 

@@ -125,8 +125,8 @@ export class Logger {
    */
   dump(label: string, artifact: unknown): void {
     if (LEVEL_RANK['debug'] < this.minLevel) return;
-    const serialised = JSON.stringify(artifact, null, 2);
-    this.dumpOutput(`[DUMP:${label}]\n${serialised}`);
+    const serialized = JSON.stringify(artifact, null, 2);
+    this.dumpOutput(`[DUMP:${label}]\n${serialized}`);
   }
 
   // --------------------------------------------------------------------------

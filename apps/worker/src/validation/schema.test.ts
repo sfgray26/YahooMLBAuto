@@ -257,7 +257,7 @@ describe('validatePlayerRecord', () => {
     expect(result.warnings.some((w) => w.includes('name'))).toBe(true);
   });
 
-  it('warns on unrecognised position code', () => {
+  it('warns on unrecognized position code', () => {
     const result = validatePlayerRecord(goodPlayer({ positions: ['ZZ'] }));
     expect(result.valid).toBe(true); // warning only
     expect(result.warnings.some((w) => w.includes('ZZ'))).toBe(true);

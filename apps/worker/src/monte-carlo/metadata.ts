@@ -67,7 +67,7 @@ export function buildRunMetadata(
 }
 
 /**
- * Serialise RunMetadata into a human-readable string for inclusion in
+ * Serialize RunMetadata into a human-readable string for inclusion in
  * simulationNotes arrays.
  */
 export function formatRunMetadata(meta: RunMetadata): string {
