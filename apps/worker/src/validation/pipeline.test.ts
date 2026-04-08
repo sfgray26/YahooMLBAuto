@@ -291,6 +291,40 @@ describe('validatePipelineRun', () => {
     const pitcherRateStage = result.stages.find((s) => s.stage === 'pitcher_derived_rates');
     expect(pitcherRateStage).toBeUndefined();
   });
+
+  it('skips pitcher stages and passes when skipPitcherStages is true', () => {
+    const run = {
+      ...goodRun,
+      pitcherIngestion: { totalPlayers: 0, totalGames: 0, errors: [] },
+      pitcherDerived: { processed: 0, errors: [] },
+      skipPitcherStages: true,
+    };
+    const result = validatePipelineRun(run);
+    expect(result.valid).toBe(true);
+    const pitcherIngestionStage = result.stages.find((s) => s.stage === 'pitcher_ingestion');
+    expect(pitcherIngestionStage?.valid).toBe(true);
+    expect(pitcherIngestionStage?.warnings).toContain('Skipped: no verified pitchers in the system');
+    const pitcherDerivedStage = result.stages.find((s) => s.stage === 'pitcher_derived_stats');
+    expect(pitcherDerivedStage?.valid).toBe(true);
+    expect(pitcherDerivedStage?.warnings).toContain('Skipped: no verified pitchers in the system');
+  });
+
+  it('skips hitter stages and passes when skipHitterStages is true', () => {
+    const run = {
+      ...goodRun,
+      hitterIngestion: { totalPlayers: 0, totalGames: 0, errors: [] },
+      hitterDerived: { processed: 0, errors: [] },
+      skipHitterStages: true,
+    };
+    const result = validatePipelineRun(run);
+    expect(result.valid).toBe(true);
+    const hitterIngestionStage = result.stages.find((s) => s.stage === 'hitter_ingestion');
+    expect(hitterIngestionStage?.valid).toBe(true);
+    expect(hitterIngestionStage?.warnings).toContain('Skipped: no verified hitters in the system');
+    const hitterDerivedStage = result.stages.find((s) => s.stage === 'hitter_derived_stats');
+    expect(hitterDerivedStage?.valid).toBe(true);
+    expect(hitterDerivedStage?.warnings).toContain('Skipped: no verified hitters in the system');
+  });
 });
 
 // ============================================================================

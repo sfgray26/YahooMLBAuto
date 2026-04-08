@@ -209,6 +209,8 @@ export async function runVerifiedPlayersDailyIngestion(
     pitcherDerived,
     derivedSamples,
     pitcherDerivedSamples,
+    skipHitterStages: hitterIds.length === 0,
+    skipPitcherStages: pitcherIds.length === 0,
   });
 
   logger.info('Pipeline validation complete', {
