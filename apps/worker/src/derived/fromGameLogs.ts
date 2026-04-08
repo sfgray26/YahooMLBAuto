@@ -14,6 +14,7 @@
  */
 
 import { prisma } from '@cbb/infrastructure';
+import { classifyPlayerRole } from '../verification/playerIdentity.js';
 
 // ============================================================================
 // Time Decay Configuration
@@ -127,6 +128,37 @@ interface ComputedDerivedStats {
   positionEligibility: string[];
   waiverWireValue: number | null;
   rosteredPercent: number | null;
+}
+
+async function loadVerifiedPlayerPositionMap(
+  playerMlbamIds: string[]
+): Promise<Map<string, string | null>> {
+  const uniqueIds = [...new Set(playerMlbamIds.filter(Boolean))];
+
+  if (uniqueIds.length === 0) {
+    return new Map();
+  }
+
+  const verifiedPlayers = await prisma.verifiedPlayer.findMany({
+    where: {
+      mlbamId: {
+        in: uniqueIds,
+      },
+    },
+    select: {
+      mlbamId: true,
+      position: true,
+    },
+  });
+
+  return new Map(
+    verifiedPlayers.map((player) => [player.mlbamId, player.position])
+  );
+}
+
+function canComputeHitterDerived(position: string | null | undefined): boolean {
+  const role = classifyPlayerRole(position);
+  return role === 'hitter' || role === 'two_way';
 }
 
 /**
@@ -484,6 +516,17 @@ export async function computeDerivedStatsFromGameLogs(
   season: number,
   asOfDate?: Date
 ): Promise<ComputedDerivedStats | null> {
+  const verifiedPlayer = await prisma.verifiedPlayer.findUnique({
+    where: { mlbamId: playerMlbamId },
+    select: { position: true },
+  });
+
+  if (!canComputeHitterDerived(verifiedPlayer?.position)) {
+    throw new Error(
+      `Player ${playerMlbamId} is not eligible for hitter-derived computation`
+    );
+  }
+
   // Determine the reference date for rolling calculations
   // If not provided, use the latest game date for this player/season
   let referenceDate: Date;
@@ -634,8 +677,20 @@ export async function batchComputeDerivedStatsFromGameLogs(
     where: { season },
   });
 
+  const verifiedPositionMap = await loadVerifiedPlayerPositionMap(
+    players.map((player) => player.playerMlbamId)
+  );
+
   for (const { playerId, playerMlbamId } of players) {
     try {
+      const position = verifiedPositionMap.get(playerMlbamId);
+      if (!canComputeHitterDerived(position)) {
+        errors.push(
+          `Player ${playerMlbamId}: skipped hitter-derived compute for role ${classifyPlayerRole(position)}`
+        );
+        continue;
+      }
+
       const stats = await computeDerivedStatsFromGameLogs(
         playerId,
         playerMlbamId,
