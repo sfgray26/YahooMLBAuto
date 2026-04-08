@@ -105,7 +105,10 @@ const smallSamplePlayer: DerivedFeatures = {
   },
 };
 
-// Test fixture: Poor player
+// Test fixture: Poor player (.180/.240/.280 slash, 32% K, platoon / bench role)
+// Inherits volume from leagueAveragePlayer but overrides rates, volatility,
+// and opportunity to reflect what a genuinely struggling hitter looks like:
+// reduced playing time, platoon exposure, more hitless games.
 const poorPlayer: DerivedFeatures = {
   ...leagueAveragePlayer,
   playerId: 'test-poor',
@@ -119,6 +122,20 @@ const poorPlayer: DerivedFeatures = {
     walkRateLast30: 0.040,
     strikeoutRateLast30: 0.320,
     babipLast30: 0.250,
+  },
+  // High K-rate → more hitless games, lower hit-consistency score
+  volatility: {
+    hitConsistencyScore: 30,
+    productionVolatility: 1.6,
+    zeroHitGamesLast14: 7,   // ~50 % hitless rate
+    multiHitGamesLast14: 2,
+  },
+  // Poor production → benching / platoon splits / downward trend
+  opportunity: {
+    gamesStartedLast14: 9,
+    lineupSpot: 7,
+    platoonRisk: 'medium',
+    playingTimeTrend: 'down',
   },
 };
 
