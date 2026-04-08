@@ -11,6 +11,7 @@ import {
   isVerifiedHitterPosition,
   loadVerifiedPlayerIdentity,
   loadVerifiedPlayerIdentityMap,
+  normalizeTeamLabel,
 } from './player-identity.js';
 
 export async function playerScoreRoutes(
@@ -72,7 +73,7 @@ export async function playerScoreRoutes(
         id: derived.playerId,
         mlbamId: derived.playerMlbamId,
         name: verifiedIdentity?.fullName || null,
-        team: verifiedIdentity?.team || null,
+        team: normalizeTeamLabel(verifiedIdentity?.team || null),
         positions: verifiedIdentity?.position ? [verifiedIdentity.position] : [],
       },
       score: {
@@ -158,7 +159,7 @@ export async function playerScoreRoutes(
         id: d.playerId,
         mlbamId: d.playerMlbamId,
         name: identity?.fullName || null,
-        team: identity?.team || null,
+        team: normalizeTeamLabel(identity?.team || null),
         positions: identity?.position ? [identity.position] : [],
         score: {
           overallValue: calculateSimpleScore(d),

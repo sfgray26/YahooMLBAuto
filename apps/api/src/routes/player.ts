@@ -9,7 +9,7 @@ import type { FastifyInstance, FastifyPluginOptions } from 'fastify';
 import { z } from 'zod';
 
 import { prisma } from '@cbb/infrastructure';
-import { loadVerifiedPlayerIdentity } from './player-identity.js';
+import { loadVerifiedPlayerIdentity, normalizeTeamLabel } from './player-identity.js';
 export async function playerRoutes(
   fastify: FastifyInstance,
   options: FastifyPluginOptions
@@ -66,7 +66,7 @@ export async function playerRoutes(
         id: id,
         mlbamId: derivedFeatures?.playerMlbamId || valuation?.playerMlbamId,
         name: verifiedIdentity?.fullName || valuation?.playerName || `Player ${id}`,
-        team: verifiedIdentity?.team || valuation?.playerTeam || null,
+        team: normalizeTeamLabel(verifiedIdentity?.team || valuation?.playerTeam || null),
         positions: derivedFeatures?.positionEligibility?.length
           ? derivedFeatures.positionEligibility
           : valuation?.playerPositions?.length
