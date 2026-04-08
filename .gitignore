@@ -49,3 +49,6 @@ coverage/
 # Temporary
 tmp/
 temp/
+
+# Turborepo cache
+.turbo/
