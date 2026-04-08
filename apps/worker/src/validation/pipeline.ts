@@ -419,6 +419,10 @@ export interface PipelineRunInputs {
   pitcherDerived: DerivedRunStats;
   derivedSamples?: DerivedRateSample[];
   pitcherDerivedSamples?: PitcherDerivedRateSample[];
+  /** Set to true when no verified hitters exist – skips hitter validation stages. */
+  skipHitterStages?: boolean;
+  /** Set to true when no verified pitchers exist – skips pitcher validation stages. */
+  skipPitcherStages?: boolean;
 }
 
 /**
@@ -428,12 +432,23 @@ export interface PipelineRunInputs {
  * A run is "valid" only when every stage passes (no errors).
  */
 export function validatePipelineRun(inputs: PipelineRunInputs): PipelineValidationResult {
-  const stages: PipelineStageResult[] = [
-    validateIngestionResult(inputs.hitterIngestion, 'hitter_ingestion'),
-    validateIngestionResult(inputs.pitcherIngestion, 'pitcher_ingestion'),
-    validateDerivedStatsResult(inputs.hitterDerived, 'hitter_derived_stats'),
-    validateDerivedStatsResult(inputs.pitcherDerived, 'pitcher_derived_stats'),
-  ];
+  const stages: PipelineStageResult[] = [];
+
+  if (inputs.skipHitterStages) {
+    stages.push({ stage: 'hitter_ingestion', valid: true, warnings: ['Skipped: no verified hitters in the system'], errors: [] });
+    stages.push({ stage: 'hitter_derived_stats', valid: true, warnings: ['Skipped: no verified hitters in the system'], errors: [] });
+  } else {
+    stages.push(validateIngestionResult(inputs.hitterIngestion, 'hitter_ingestion'));
+    stages.push(validateDerivedStatsResult(inputs.hitterDerived, 'hitter_derived_stats'));
+  }
+
+  if (inputs.skipPitcherStages) {
+    stages.push({ stage: 'pitcher_ingestion', valid: true, warnings: ['Skipped: no verified pitchers in the system'], errors: [] });
+    stages.push({ stage: 'pitcher_derived_stats', valid: true, warnings: ['Skipped: no verified pitchers in the system'], errors: [] });
+  } else {
+    stages.push(validateIngestionResult(inputs.pitcherIngestion, 'pitcher_ingestion'));
+    stages.push(validateDerivedStatsResult(inputs.pitcherDerived, 'pitcher_derived_stats'));
+  }
 
   if (inputs.derivedSamples && inputs.derivedSamples.length > 0) {
     stages.push(validateDerivedRates(inputs.derivedSamples));

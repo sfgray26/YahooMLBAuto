@@ -20,7 +20,8 @@
  */
 
 import 'dotenv/config';
-import { prisma } from '@cbb/infrastructure';
+import { prisma } from './lib/prisma.js';
+import { assertValidationEnvironment } from './lib/validation-preflight.js';
 
 const season = parseInt(process.argv[2] || '2025');
 const TOLERANCE = 0.01; // 1% tolerance
@@ -252,6 +253,25 @@ async function getSamplePlayers(season: number, sampleSize: number): Promise<Arr
  * Main validation
  */
 async function runValidation() {
+  // Fail fast when DATABASE_URL is a Railway-internal host that is only
+  // reachable inside the Railway private network.  Running this validator
+  // against such a host from GitHub Actions (or any external machine) will
+  // always produce a spurious connection error.  Exit 0 so the CI step is
+  // treated as "skipped" rather than a build failure.
+  try {
+    await assertValidationEnvironment({
+      requiredTables: ['player_derived_stats', 'player_game_logs'],
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('Railway internal host')) {
+      console.log('\n⏭  Skipping derived-layer validation: DATABASE_URL points to a');
+      console.log('   Railway-internal host that is not reachable from this machine.');
+      console.log('   Run this validation inside Railway or with a reachable database URL.\n');
+      process.exit(0);
+    }
+    throw error;
+  }
+
   console.log('\n' + '='.repeat(70));
   console.log('  DERIVED FEATURES LAYER VALIDATION');
   console.log('  Facts → Features (Deterministic, Recomputable, Strategy-Free)');
