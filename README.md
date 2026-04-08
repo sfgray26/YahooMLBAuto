@@ -157,6 +157,20 @@ WORKER_CONCURRENCY=5
 ALLOW_MOCK_VALUATIONS=false
 ```
 
+## Validation Layer
+
+The pipeline includes a multi-stage validation system that catches data quality issues at every layer:
+
+- **Row-level**: negative counting stats, impossible values (PA < AB), duplicate entries, mismatched joins, unknown position codes
+- **Derived features**: monotonic rolling windows (30d ≥ 14d ≥ 7d), rate ranges, PA/AB arithmetic
+- **Monte Carlo**: percentile ordering (p10 ≤ p50 ≤ p90), seed recorded for reproducibility, provenance metadata attached to every output
+- **Pipeline aggregate**: ingestion completeness, error rates, hitter and pitcher rate sanity
+
+See [`docs/VALIDATION-LAYER.md`](docs/VALIDATION-LAYER.md) for:
+- Full list of required input columns per dataset
+- How to run validations and tests locally
+- Monte Carlo reproducibility details (deterministic seeding, `GIT_SHA` provenance)
+
 ## CI / GitHub Actions
 
 Two separate workflows keep the build fast, secretless, and observable.

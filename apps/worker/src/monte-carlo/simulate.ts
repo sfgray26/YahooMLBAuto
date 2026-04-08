@@ -13,6 +13,7 @@
  */
 
 import type { PlayerScore } from '../scoring/compute.js';
+import { buildRunMetadata, formatRunMetadata, type RunMetadata } from './metadata.js';
 
 // Inline type for derived stats (avoiding Prisma client import issues)
 interface PlayerDerivedStats {
@@ -45,6 +46,8 @@ export interface SimulationConfig {
   runs: number;
   horizon: 'daily' | 'weekly';
   randomSeed?: number;
+  /** Optional version/hash of the input data for provenance tracking. */
+  dataVersion?: string;
 }
 
 export interface PlayerOutcomeDistribution {
@@ -81,6 +84,8 @@ export interface PlayerOutcomeDistribution {
 
   // Explainability
   simulationNotes: string[];
+  /** Provenance metadata for this simulation run. */
+  runMetadata: RunMetadata;
 }
 
 // Seeded random number generator for reproducibility (Mulberry32)
@@ -338,6 +343,14 @@ export function simulatePlayerOutcome(
     notes.push(`Confidence ${confidenceImpact === 'increase' ? 'boosted' : 'reduced'} due to ${confidenceImpact === 'increase' ? 'reliable floor' : 'high downside risk'}`);
   }
 
+  const runMetadata = buildRunMetadata(
+    resolvedSeed,
+    config.runs,
+    config.horizon,
+    config.dataVersion
+  );
+  notes.push(formatRunMetadata(runMetadata));
+
   return {
     playerId: derived.playerId,
     playerMlbamId: derived.playerMlbamId,
@@ -360,6 +373,7 @@ export function simulatePlayerOutcome(
     confidenceImpact,
     confidenceDelta,
     simulationNotes: notes,
+    runMetadata,
   };
 }
 

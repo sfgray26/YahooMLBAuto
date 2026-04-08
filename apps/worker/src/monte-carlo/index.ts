@@ -12,3 +12,9 @@ export {
   type SimulationConfig,
   type PlayerOutcomeDistribution,
 } from './simulate.js';
+
+export {
+  buildRunMetadata,
+  formatRunMetadata,
+  type RunMetadata,
+} from './metadata.js';
