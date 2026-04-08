@@ -26,6 +26,7 @@
     "test:game-logs": "tsx scripts/test-game-log-ingestion.ts",
     "validate:derived": "tsx scripts/validate-derived-layer.ts",
     "validate:scoring": "tsx scripts/validate-scoring-layer.ts",
+    "validate:manual:db": "tsx scripts/validate-manual-db.ts",
     "uat:verbose": "tsx scripts/uat/run-all.ts --verbose",
     "uat:json": "tsx scripts/uat/run-all.ts --json",
     "api:dev": "cd apps/api && pnpm dev",

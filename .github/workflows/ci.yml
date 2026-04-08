@@ -36,6 +36,13 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      # Generate Prisma Client so that @prisma/client types are available to
+      # the TypeScript compiler across all packages before typecheck runs.
+      # This is necessary because the Turbo cache may replay the build step
+      # without actually executing `prisma generate` on the current runner.
+      - name: Generate Prisma Client
+        run: pnpm db:generate
+
       - name: Typecheck
         run: pnpm typecheck
 

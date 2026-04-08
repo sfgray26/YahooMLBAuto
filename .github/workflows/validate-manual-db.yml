@@ -1,0 +1,147 @@
+name: Manual DB Validation
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Purpose
+#   Connects to a real PostgreSQL database (production read-only replica or
+#   staging environment) and runs the full pipeline layer validation, writing
+#   structured JSON artifacts for human review.
+#
+# This workflow is intentionally SEPARATE from the standard CI workflow and is
+# NEVER triggered on push or pull_request, keeping normal CI secretless.
+#
+# Required secrets (set in GitHub → Settings → Secrets and variables → Actions):
+#   DATABASE_URL  — PostgreSQL connection string for the read-only replica
+#                   e.g. postgresql://user:pass@host:5432/dbname?sslmode=require
+#
+# Optional env vars (set as workflow_dispatch inputs or repository variables):
+#   VALIDATION_SEASON  — MLB season year  (default: current year)
+#   VALIDATION_SAMPLE  — players per layer (default: 50)
+#   MAX_ARTIFACT_ROWS  — rows per artifact file (default: 500)
+# ─────────────────────────────────────────────────────────────────────────────
+
+on:
+  workflow_dispatch:
+    inputs:
+      season:
+        description: 'MLB season year (e.g. 2026)'
+        required: false
+        default: ''
+        type: string
+      sample_size:
+        description: 'Number of players to sample per layer (e.g. 50)'
+        required: false
+        default: '50'
+        type: string
+      max_rows:
+        description: 'Max rows per artifact file (e.g. 500)'
+        required: false
+        default: '500'
+        type: string
+      environment:
+        description: 'DB environment label (informational only)'
+        required: false
+        default: 'production-read-only-replica'
+        type: choice
+        options:
+          - production-read-only-replica
+          - staging
+          - local
+
+concurrency:
+  group: manual-db-validation
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: DB Validation — ${{ github.event.inputs.environment || 'production-read-only-replica' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    steps:
+      # ── Source ──────────────────────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Toolchain ───────────────────────────────────────────────────────────
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.0.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # ── Fail safely if DATABASE_URL is missing ───────────────────────────────
+      - name: Verify DATABASE_URL is set
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "❌ DATABASE_URL secret is not configured."
+            echo ""
+            echo "To run this workflow you must set the DATABASE_URL secret in:"
+            echo "  GitHub → Settings → Secrets and variables → Actions → New repository secret"
+            echo ""
+            echo "The value should be a PostgreSQL connection string for a read-only replica."
+            echo "Example: postgresql://user:pass@host:5432/dbname?sslmode=require"
+            exit 1
+          fi
+          echo "✅ DATABASE_URL is set (length=${#DATABASE_URL})"
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      # ── Generate Prisma Client ───────────────────────────────────────────────
+      - name: Generate Prisma Client
+        run: pnpm db:generate
+
+      # ── Run DB validation ────────────────────────────────────────────────────
+      - name: Run manual DB validation
+        run: pnpm validate:manual:db
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          ARTIFACTS_ENABLED: 'true'
+          ARTIFACT_DIR: artifacts
+          MAX_ARTIFACT_ROWS: ${{ github.event.inputs.max_rows || '500' }}
+          VALIDATION_SEASON: ${{ github.event.inputs.season || '' }}
+          VALIDATION_SAMPLE: ${{ github.event.inputs.sample_size || '50' }}
+          NODE_ENV: production
+
+      # ── Upload artifacts ─────────────────────────────────────────────────────
+      - name: Upload validation artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-validation-artifacts-${{ github.run_number }}
+          path: artifacts/
+          retention-days: 30
+
+      - name: Print artifact summary
+        if: always()
+        run: |
+          echo ""
+          echo "=== Artifact files written ==="
+          find artifacts/ -type f -name "*.json" | sort | while read f; do
+            size=$(wc -c < "$f")
+            echo "  $f  (${size} bytes)"
+          done || echo "  (no artifacts found)"
+          echo ""
+          echo "Download the artifact zip from the Actions run summary page."
+          echo "Each run-<timestamp>/ directory contains:"
+          echo "  run-metadata.json        — run provenance (seed, git SHA, config)"
+          echo "  validation-report.json   — overall pass/fail + per-layer summary"
+          echo "  ingestion-records.json   — sampled game log rows"
+          echo "  ingestion-summary.json   — ingestion layer stats"
+          echo "  derived-records.json     — sampled derived stats"
+          echo "  derived-summary.json     — derived layer stats"
+          echo "  scoring-records.json     — sampled scored players"
+          echo "  scoring-summary.json     — scoring layer stats"
+          echo "  monte-carlo-records.json — sampled simulation outputs"
+          echo "  monte-carlo-summary.json — Monte Carlo stats"
+          echo "  recommendations-records.json — ranked recommendations"
+          echo "  recommendations-summary.json — recommendations stats"
