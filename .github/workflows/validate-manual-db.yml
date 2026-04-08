@@ -96,9 +96,12 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
-      # ── Generate Prisma Client ───────────────────────────────────────────────
-      - name: Generate Prisma Client
-        run: pnpm db:generate
+      # ── Build packages ───────────────────────────────────────────────────────
+      # Build all workspace packages so that @cbb/core and @cbb/infrastructure
+      # dist/ outputs exist before the validation script imports them.
+      # The infrastructure build script already runs `prisma generate` internally.
+      - name: Build packages
+        run: pnpm build
 
       # ── Run DB validation ────────────────────────────────────────────────────
       - name: Run manual DB validation
