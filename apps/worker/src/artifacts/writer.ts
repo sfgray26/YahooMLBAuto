@@ -31,7 +31,13 @@ export function resolveArtifactConfig(overrides: Partial<ArtifactConfig> = {}): 
   const maxRows = overrides.maxRows ?? parseInt(process.env.MAX_ARTIFACT_ROWS ?? '500', 10);
   const runId =
     overrides.runId ??
-    `run-${new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19)}`;
+    (() => {
+      const now = new Date();
+      const pad = (n: number, len = 2) => String(n).padStart(len, '0');
+      const date = `${now.getUTCFullYear()}-${pad(now.getUTCMonth() + 1)}-${pad(now.getUTCDate())}`;
+      const time = `${pad(now.getUTCHours())}-${pad(now.getUTCMinutes())}-${pad(now.getUTCSeconds())}`;
+      return `run-${date}_${time}`;
+    })();
 
   return { enabled, artifactDir, maxRows, runId };
 }
@@ -56,7 +62,7 @@ export interface LayerSummary {
   sampledRecords: number;
   errorCount: number;
   warningCount: number;
-  stats: Record<string, number | string | null>;
+  stats: Record<string, unknown>;
   errors: string[];
   warnings: string[];
 }

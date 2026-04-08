@@ -216,8 +216,8 @@ async function validateDerived() {
       stats: {
         totalDerived: derivedCount,
         missingRates: derivedErrors,
-        avgStats: JSON.stringify(numericStats(avgValues)),
-        opsStats: JSON.stringify(numericStats(opsValues)),
+        avgStats: numericStats(avgValues),
+        opsStats: numericStats(opsValues),
       },
       errors: [...derivedResult.errors, ...rateResult.errors],
       warnings: [...derivedResult.warnings, ...rateResult.warnings],
@@ -350,8 +350,8 @@ async function validateScoring() {
     warningCount: warnings.length,
     stats: {
       scoredPlayers: scored.length,
-      overallValueStats: JSON.stringify(numericStats(overallValues)),
-      confidenceStats: JSON.stringify(numericStats(confidenceValues)),
+      overallValueStats: numericStats(overallValues),
+      confidenceStats: numericStats(confidenceValues),
     },
     errors,
     warnings,
@@ -519,8 +519,8 @@ async function validateMonteCarlo(
     warningCount: warnings.length,
     stats: {
       simulatedPlayers: simResults.length,
-      evStats: JSON.stringify(numericStats(evValues)),
-      p90Stats: JSON.stringify(numericStats(p90Values)),
+      evStats: numericStats(evValues),
+      p90Stats: numericStats(p90Values),
       seed: 42,
       runs: 500,
     },
