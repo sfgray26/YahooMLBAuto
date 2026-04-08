@@ -7,6 +7,21 @@ export interface VerifiedPlayerIdentity {
   position: string | null;
 }
 
+const HITTER_POSITIONS = new Set([
+  'C',
+  '1B',
+  '2B',
+  '3B',
+  'SS',
+  'LF',
+  'CF',
+  'RF',
+  'OF',
+  'DH',
+  'UT',
+  'UTIL',
+]);
+
 export async function loadVerifiedPlayerIdentity(
   mlbamId: string
 ): Promise<VerifiedPlayerIdentity | null> {
@@ -45,4 +60,16 @@ export async function loadVerifiedPlayerIdentityMap(
   });
 
   return new Map(players.map((player) => [player.mlbamId, player]));
+}
+
+export function isVerifiedHitterPosition(position: string | null | undefined): boolean {
+  if (!position) {
+    return false;
+  }
+
+  return position
+    .split(/[\/,]/)
+    .map((part) => part.trim().toUpperCase())
+    .filter(Boolean)
+    .some((part) => HITTER_POSITIONS.has(part));
 }

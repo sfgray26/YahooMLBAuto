@@ -7,7 +7,11 @@
 
 import type { FastifyInstance, FastifyPluginOptions } from 'fastify';
 import { prisma } from '@cbb/infrastructure';
-import { loadVerifiedPlayerIdentity, loadVerifiedPlayerIdentityMap } from './player-identity.js';
+import {
+  isVerifiedHitterPosition,
+  loadVerifiedPlayerIdentity,
+  loadVerifiedPlayerIdentityMap,
+} from './player-identity.js';
 
 export async function playerScoreRoutes(
   fastify: FastifyInstance,
@@ -39,6 +43,24 @@ export async function playerScoreRoutes(
         playerId: id,
         season: targetSeason,
         message: 'Player data may still be processing. Run data sync first.',
+      });
+    }
+
+    if (!isVerifiedHitterPosition(verifiedIdentity?.position)) {
+      return reply.status(400).send({
+        error: 'Player score only supports hitters',
+        playerId: id,
+        season: targetSeason,
+        message: 'Use pitcher-specific scoring for pitchers and other non-hitter roles.',
+      });
+    }
+
+    if (!isValidHitterDerivedRecord(derived)) {
+      return reply.status(409).send({
+        error: 'Derived score data failed integrity checks',
+        playerId: id,
+        season: targetSeason,
+        message: 'The latest hitter-derived record is not internally consistent yet. Recompute derived stats before using this score.',
       });
     }
 
@@ -128,19 +150,23 @@ export async function playerScoreRoutes(
     const players = derivedRecords.map((d: { playerId: string; playerMlbamId: string; battingAverageLast30: number | null; opsLast30: number | null; gamesLast30: number; plateAppearancesLast30: number; hitConsistencyScore: number; gamesStartedLast14: number }) => {
       const identity = identityMap.get(d.playerMlbamId);
 
+      if (!isVerifiedHitterPosition(identity?.position) || !isValidHitterDerivedRecord(d)) {
+        return null;
+      }
+
       return {
-      id: d.playerId,
-      mlbamId: d.playerMlbamId,
-      name: identity?.fullName || null,
-      team: identity?.team || null,
-      positions: identity?.position ? [identity.position] : [],
-      score: {
-        overallValue: calculateSimpleScore(d),
-        ops: d.opsLast30,
-        gamesPlayed: d.gamesLast30,
-      },
+        id: d.playerId,
+        mlbamId: d.playerMlbamId,
+        name: identity?.fullName || null,
+        team: identity?.team || null,
+        positions: identity?.position ? [identity.position] : [],
+        score: {
+          overallValue: calculateSimpleScore(d),
+          ops: d.opsLast30,
+          gamesPlayed: d.gamesLast30,
+        },
       };
-    });
+    }).filter((player): player is NonNullable<typeof player> => player !== null);
 
     // Sort by overall value
     players.sort((a: { score: { overallValue: number } }, b: { score: { overallValue: number } }) => b.score.overallValue - a.score.overallValue);
@@ -231,4 +257,14 @@ function calculateOpportunityScore(d: { gamesStartedLast14: number }): number {
   else if (rate >= 0.7) score += 10;
   else if (rate < 0.5) score -= 10;
   return Math.max(0, Math.min(100, score));
+}
+
+function isValidHitterDerivedRecord(d: {
+  gamesLast30: number;
+  plateAppearancesLast30: number;
+}): boolean {
+  return d.gamesLast30 >= 0
+    && d.gamesLast30 <= 30
+    && d.plateAppearancesLast30 >= 0
+    && d.plateAppearancesLast30 <= 200;
 }
