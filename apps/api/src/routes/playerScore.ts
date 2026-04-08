@@ -7,6 +7,7 @@
 
 import type { FastifyInstance, FastifyPluginOptions } from 'fastify';
 import { prisma } from '@cbb/infrastructure';
+import { loadVerifiedPlayerIdentity, loadVerifiedPlayerIdentityMap } from './player-identity.js';
 
 export async function playerScoreRoutes(
   fastify: FastifyInstance,
@@ -30,6 +31,8 @@ export async function playerScoreRoutes(
       orderBy: { computedAt: 'desc' },
     });
 
+    const verifiedIdentity = await loadVerifiedPlayerIdentity(id);
+
     if (!derived) {
       return reply.status(404).send({
         error: 'Player score not available',
@@ -46,6 +49,9 @@ export async function playerScoreRoutes(
       player: {
         id: derived.playerId,
         mlbamId: derived.playerMlbamId,
+        name: verifiedIdentity?.fullName || null,
+        team: verifiedIdentity?.team || null,
+        positions: verifiedIdentity?.position ? [verifiedIdentity.position] : [],
       },
       score: {
         overallValue,
@@ -99,11 +105,12 @@ export async function playerScoreRoutes(
       ? parseInt(season)
       : new Date().getFullYear();
 
+    const requestedLimit = parseInt(limit);
+
     const derivedRecords = await prisma.playerDerivedStats.findMany({
       where: { season: targetSeason },
       distinct: ['playerMlbamId'],
       orderBy: { computedAt: 'desc' },
-      take: parseInt(limit),
     });
 
     if (derivedRecords.length === 0) {
@@ -114,24 +121,35 @@ export async function playerScoreRoutes(
     }
 
     // Calculate scores and sort
-    const players = derivedRecords.map((d: { playerId: string; playerMlbamId: string; battingAverageLast30: number | null; opsLast30: number | null; gamesLast30: number; plateAppearancesLast30: number; hitConsistencyScore: number; gamesStartedLast14: number }) => ({
+    const identityMap = await loadVerifiedPlayerIdentityMap(
+      derivedRecords.map((record) => record.playerMlbamId)
+    );
+
+    const players = derivedRecords.map((d: { playerId: string; playerMlbamId: string; battingAverageLast30: number | null; opsLast30: number | null; gamesLast30: number; plateAppearancesLast30: number; hitConsistencyScore: number; gamesStartedLast14: number }) => {
+      const identity = identityMap.get(d.playerMlbamId);
+
+      return {
       id: d.playerId,
       mlbamId: d.playerMlbamId,
+      name: identity?.fullName || null,
+      team: identity?.team || null,
+      positions: identity?.position ? [identity.position] : [],
       score: {
         overallValue: calculateSimpleScore(d),
         ops: d.opsLast30,
         gamesPlayed: d.gamesLast30,
       },
-    }));
+      };
+    });
 
     // Sort by overall value
     players.sort((a: { score: { overallValue: number } }, b: { score: { overallValue: number } }) => b.score.overallValue - a.score.overallValue);
 
     return {
-      players,
+      players: players.slice(0, requestedLimit),
       meta: {
         season: targetSeason,
-        count: players.length,
+        count: Math.min(players.length, requestedLimit),
         scoredAt: new Date().toISOString(),
       },
     };
