@@ -9,7 +9,6 @@
   "scripts": {
     "build": "tsc && pnpm prisma generate",
     "dev": "tsc --watch",
-    "postinstall": "prisma generate",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
