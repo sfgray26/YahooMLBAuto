@@ -15,10 +15,7 @@ import {
   getPitcherDerivedFeatures,
   scoreSinglePitcher,
   simulatePitcherOutcome,
-  verifyPlayerIdentity,
-  upsertVerifiedPlayer,
-  classifyPlayerRole,
-  ingestPlayer,
+
 } from '@cbb/worker';
 import { validatePlayerIdentity, validatePlayerBatch, suggestCorrectId } from '@cbb/worker';
 import { prisma } from '@cbb/infrastructure';
@@ -1530,3 +1527,46 @@ export async function adminRoutes(
     }
   });
 }
+// ==========================================================================
+// Helper Functions
+// ==========================================================================
+
+async function verifyPlayerIdentity(mlbamId: string) {
+  const result = await validatePlayerIdentity(mlbamId, '');
+  return {
+    valid: result.valid,
+    identity: result.actualIdentity,
+    error: result.errors?.[0],
+  };
+}
+
+async function upsertVerifiedPlayer(identity: {
+  fullName: string;
+  team?: string;
+  position?: string;
+  active?: boolean;
+  mlbamId: string;
+}) {
+  await prisma.verifiedPlayer.upsert({
+    where: { mlbamId: identity.mlbamId },
+    update: {
+      fullName: identity.fullName,
+      team: identity.team,
+      position: identity.position,
+      isActive: identity.active ?? true,
+      lastChecked: new Date(),
+    },
+    create: {
+      mlbamId: identity.mlbamId,
+      fullName: identity.fullName,
+      team: identity.team,
+      position: identity.position,
+      isActive: identity.active ?? true,
+      verificationSource: 'mlb_api',
+    },
+  });
+}
+function classifyPlayerRole(position: any) {
+  throw new Error('Function not implemented.');
+}
+

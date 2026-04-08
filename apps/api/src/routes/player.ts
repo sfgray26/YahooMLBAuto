@@ -23,7 +23,7 @@ export async function playerRoutes(
     const { date } = request.query as { date?: string };
 
     const targetDate = date ? new Date(date) : new Date();
-    const targetSeason = targetDate.getUTCFullYear();
+    const targetSeason = targetDate.getFullYear();
     const dateStr = targetDate.toISOString().split('T')[0];
 
     // Get derived features first (these always exist if ingestion ran)
