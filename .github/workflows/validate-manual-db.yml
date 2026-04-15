@@ -10,8 +10,11 @@ name: Manual DB Validation
 # NEVER triggered on push or pull_request, keeping normal CI secretless.
 #
 # Required secrets (set in GitHub → Settings → Secrets and variables → Actions):
-#   DATABASE_URL  — PostgreSQL connection string for the read-only replica
-#                   e.g. postgresql://user:pass@host:5432/dbname?sslmode=require
+#   DATABASE_PUBLIC_URL  — Public PostgreSQL connection string for the read-only replica
+#                          Use the Railway public/external URL, NOT the internal
+#                          postgres.railway.internal URL (which is unreachable from
+#                          GitHub Actions runners).
+#                          e.g. postgresql://user:pass@caboose.proxy.rlwy.net:PORT/railway
 #
 # Optional env vars (set as workflow_dispatch inputs or repository variables):
 #   VALIDATION_SEASON  — MLB season year  (default: current year)
@@ -79,22 +82,23 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # ── Fail safely if DATABASE_URL is missing ───────────────────────────────
-      - name: Verify DATABASE_URL is set
+      # ── Fail safely if DATABASE_PUBLIC_URL is missing ──────────────────────────
+      - name: Verify DATABASE_PUBLIC_URL is set
         run: |
-          if [ -z "$DATABASE_URL" ]; then
-            echo "❌ DATABASE_URL secret is not configured."
+          if [ -z "$DATABASE_PUBLIC_URL" ]; then
+            echo "❌ DATABASE_PUBLIC_URL secret is not configured."
             echo ""
-            echo "To run this workflow you must set the DATABASE_URL secret in:"
+            echo "To run this workflow you must set the DATABASE_PUBLIC_URL secret in:"
             echo "  GitHub → Settings → Secrets and variables → Actions → New repository secret"
             echo ""
-            echo "The value should be a PostgreSQL connection string for a read-only replica."
-            echo "Example: postgresql://user:pass@host:5432/dbname?sslmode=require"
+            echo "The value must be the Railway PUBLIC connection string (not the internal"
+            echo "postgres.railway.internal URL, which is unreachable from GitHub Actions)."
+            echo "Example: postgresql://user:pass@caboose.proxy.rlwy.net:PORT/railway"
             exit 1
           fi
-          echo "✅ DATABASE_URL is set (length=${#DATABASE_URL})"
+          echo "✅ DATABASE_PUBLIC_URL is set (length=${#DATABASE_PUBLIC_URL})"
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_PUBLIC_URL: ${{ secrets.DATABASE_PUBLIC_URL }}
 
       # ── Build packages ───────────────────────────────────────────────────────
       # Build all workspace packages so that @cbb/core and @cbb/infrastructure
@@ -107,7 +111,7 @@ jobs:
       - name: Run manual DB validation
         run: pnpm validate:manual:db
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.DATABASE_PUBLIC_URL }}
           ARTIFACTS_ENABLED: 'true'
           ARTIFACT_DIR: artifacts
           MAX_ARTIFACT_ROWS: ${{ github.event.inputs.max_rows || '500' }}
